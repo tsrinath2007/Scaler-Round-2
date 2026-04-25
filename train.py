@@ -128,23 +128,31 @@ def main():
 
     callback = RewardLoggerCallback()
 
+    # Check if tensorboard is available
+    try:
+        import tensorboard  # noqa
+        tb_log = f"./tb_logs/{args.task}/"
+    except ImportError:
+        tb_log = None
+
     # PPO hyperparams tuned for this env's reward scale and episode length
     model = PPO(
         "MlpPolicy",
         vec_env,
         verbose=1,
-        learning_rate=2e-4,          # slightly lower than default for stability
-        n_steps=1024,                 # bigger rollout = better credit assignment
+        device="cpu",                 # MlpPolicy runs faster on CPU
+        learning_rate=2e-4,
+        n_steps=1024,
         batch_size=128,
         n_epochs=10,
-        gamma=0.995,                  # high gamma: care about long-term survival
+        gamma=0.995,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.005,               # small entropy bonus for exploration
+        ent_coef=0.005,
         vf_coef=0.5,
         max_grad_norm=0.5,
-        policy_kwargs=dict(net_arch=[256, 256]),  # bigger network
-        tensorboard_log=f"./tb_logs/{args.task}/",
+        policy_kwargs=dict(net_arch=[256, 256]),
+        tensorboard_log=tb_log,
     )
 
     model.learn(

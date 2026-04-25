@@ -8,8 +8,10 @@ openenv-core
 # RL training
 gymnasium>=0.29.0
 stable-baselines3>=2.3.0
+tensorboard>=2.14.0
 matplotlib
 numpy
+scipy
 # LLM fine-tuning
 transformers>=4.40.0
 datasets>=2.18.0
