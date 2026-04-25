@@ -12,10 +12,9 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-      - name: Install Hugging Face Hub
-        run: pip install -U "huggingface_hub[cli]"
-      - name: Push to Hub
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          huggingface-cli upload tsrinath/Scaler-Round-2 . . --repo-type=space --token=$HF_TOKEN --yes
+      - name: Push to hub
+        uses: huggingface/github-action@main
+        with:
+          hf_token: ${{ secrets.HF_TOKEN }}
+          repo_id: tsrinath/Scaler-Round-2
+          repo_type: space
