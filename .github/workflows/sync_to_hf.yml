@@ -16,7 +16,10 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          git config --global user.email "actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git remote add hf https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2
           # Try pushing to main
-          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2 main:main || \
-          # If that fails, try pushing to master
-          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2 main:master
+          git push hf main --force || \
+          # Try pushing to master if main fails
+          git push hf main:master --force
