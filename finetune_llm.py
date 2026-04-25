@@ -154,15 +154,15 @@ def main():
         save_strategy="steps",
         save_steps=500,
         save_total_limit=2,
-        max_seq_length=args.max_seq_len,
         packing=False,
         report_to="none",
         seed=42,
+        # max_seq_length moved to SFTTrainer in newer trl versions
     )
 
     # ── Train ────────────────────────────────────────────────────────────────
     print("\n  Starting fine-tuning...\n")
-    trainer = SFTTrainer(
+    trainer_kwargs = dict(
         model=model,
         args=training_args,
         train_dataset=dataset["train"],
@@ -170,6 +170,11 @@ def main():
         peft_config=lora_config,
         tokenizer=tokenizer,
     )
+    # max_seq_length location depends on trl version
+    import inspect
+    if "max_seq_length" in inspect.signature(SFTTrainer.__init__).parameters:
+        trainer_kwargs["max_seq_length"] = args.max_seq_len
+    trainer = SFTTrainer(**trainer_kwargs)
 
     trainer.train()
 
