@@ -18,17 +18,26 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           if [ -z "$HF_TOKEN" ]; then
-            echo "❌ HF_TOKEN secret is not set!"
-            echo "Fix: GitHub repo → Settings → Secrets → Actions → New secret"
-            echo "     Name: HF_TOKEN"
-            echo "     Value: token from https://huggingface.co/settings/tokens (Write scope)"
+            echo "HF_TOKEN secret is not set in GitHub secrets."
             exit 1
           fi
-          echo "✅ HF_TOKEN is present"
+          echo "HF_TOKEN is present."
 
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          git config user.email "ci@github.com"
+          git config user.name "GitHub Actions"
+
+          # Create a fresh single-commit branch — no old history, no large data files
+          git checkout --orphan hf-deploy
+
+          # Remove large/unnecessary files the Space doesn't need
+          git rm -rf --cached expert_data/ models/ tb_logs/ || true
+
+          git add -A
+          git commit -m "Deploy: Artemis Moon Mission By BigByte"
+
           git remote add huggingface https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2
-          git push huggingface main --force
+          git push huggingface hf-deploy:main --force
