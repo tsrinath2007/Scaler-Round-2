@@ -1,3 +1,13 @@
+---
+title: Life Support ENV
+emoji: 🌙
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Life Support ENV — Round 2 (RL + LLM Edition)
 
 > OpenEnv Hackathon — Round 2 Submission  
