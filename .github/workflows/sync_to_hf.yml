@@ -16,4 +16,4 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://tsrinath2007:$HF_TOKEN@huggingface.co/spaces/tsrinath2007/Life-Support-ENV main || echo "HF push failed - space may not exist yet"
+          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2 main
