@@ -27,13 +27,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:7860/health').raise_for_status()"
 
 # Full pipeline: PPO training → Expert data → LLM fine-tuning → Serve
-# Override HUB_REPO with your HuggingFace username
-# Set HF_TOKEN as a Space secret
-CMD python train_full_pipeline.py \
-        --task task_medium \
-        --ppo-timesteps 500000 \
-        --expert-episodes 150 \
-        --llm-epochs 3 \
-        --hub-repo ${HUB_REPO:-""} \
-        --skip-push && \
-    uvicorn server.app:app --host 0.0.0.0 --port 7860
+# Training runs in background, server runs in foreground to pass health checks
+COPY --chown=user start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+CMD ["/app/start.sh"]
