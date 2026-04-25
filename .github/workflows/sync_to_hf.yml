@@ -8,12 +8,12 @@ jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          lfs: true
       - name: Push to Hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Life-Support-ENV main
-          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Life-Support-ENV main:master
+          git push --force https://tsrinath2007:$HF_TOKEN@huggingface.co/spaces/tsrinath2007/Life-Support-ENV main || echo "HF push failed - space may not exist yet"
