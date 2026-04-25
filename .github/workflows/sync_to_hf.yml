@@ -16,4 +16,7 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2 main
+          # Try pushing to main
+          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2 main:main || \
+          # If that fails, try pushing to master
+          git push --force https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2 main:master
