@@ -34,7 +34,7 @@ jobs:
           git checkout --orphan hf-deploy
 
           # Remove large/unnecessary files the Space doesn't need
-          git rm -rf --cached expert_data/ models/ tb_logs/ || true
+          rm -rf expert_data/ models/ tb_logs/ lifesupport-llm/ .git/lfs/
 
           git add -A
           git commit -m "Deploy: Artemis Moon Mission By BigByte"
