@@ -13,8 +13,9 @@ jobs:
           fetch-depth: 0
           lfs: true
       - name: Push to hub
-        uses: huggingface/github-action@main
+        uses: huggingface/hub-sync@main
         with:
+          github_repo_id: tsrinath2007/Scaler-Round-2
+          huggingface_repo_id: tsrinath/Scaler-Round-2
           hf_token: ${{ secrets.HF_TOKEN }}
-          repo_id: tsrinath/Scaler-Round-2
           repo_type: space
