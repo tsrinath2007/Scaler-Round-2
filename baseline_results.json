@@ -1,0 +1,62 @@
+{
+  "model": "llama-3.1-8b-instant",
+  "seed": 42,
+  "host": "http://localhost:7860",
+  "results": [
+    {
+      "task_id": "task_easy",
+      "score": 0.9976,
+      "passed": true,
+      "steps": 24,
+      "total_reward": 20.1711,
+      "breakdown": {
+        "safety_score": 0.5,
+        "health_score": 0.2,
+        "resource_score": 0.1476,
+        "completion_score": 0.15,
+        "safe_fraction": 1.0,
+        "water_end_score": 1.0,
+        "food_end_score": 0.9675,
+        "steps_completed": 24.0
+      },
+      "feedback": "Completed 24/24 steps. Safe parameters 24/24 steps. High health 24/24 steps. Water end: 1.00x, Food end: 0.97x."
+    },
+    {
+      "task_id": "task_medium",
+      "score": 0.8422,
+      "passed": true,
+      "steps": 70,
+      "total_reward": 52.2165,
+      "breakdown": {
+        "safety_score": 0.4,
+        "resource_score": 0.2473,
+        "health_score": 0.1323,
+        "completion": 0.0625,
+        "avg_health": 0.8309,
+        "water_trend": 1.0,
+        "food_trend": 0.9786
+      },
+      "feedback": "7-day mission: 70/168 steps. Avg health: 0.83. Water trend: 1.00x, Food trend: 0.98x."
+    },
+    {
+      "task_id": "task_hard",
+      "score": 0.7061,
+      "passed": true,
+      "steps": 77,
+      "total_reward": 56.6769,
+      "breakdown": {
+        "efficiency_score": 0.2229,
+        "health_score": 0.1714,
+        "safety_score": 0.2,
+        "food_score": 0.1011,
+        "completion": 0.0107,
+        "avg_health": 0.8393,
+        "catastrophic_events": 0.0,
+        "avg_recycling": 0.7416,
+        "loop_efficiency": 0.7431
+      },
+      "feedback": "30-day mission: 77/720 steps. Loop efficiency: 0.74. Avg health: 0.84. Catastrophic events: 0. Food delta: +3.5kg."
+    }
+  ],
+  "average_score": 0.8486
+}

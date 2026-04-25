@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "closed-loop-life-support"
+version = "1.0.0"
+description = "Closed-Loop Life Support OpenEnv"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "openai",
+    "requests",
+    "pyyaml",
+    "openenv-core"
+]
+
+[project.scripts]
+server = "server.app:main"

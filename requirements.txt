@@ -1,0 +1,21 @@
+fastapi
+uvicorn[standard]
+pydantic
+openai
+requests
+pyyaml
+openenv-core
+# RL training
+gymnasium>=0.29.0
+stable-baselines3>=2.3.0
+matplotlib
+numpy
+# LLM fine-tuning
+transformers>=4.40.0
+datasets>=2.18.0
+accelerate>=0.28.0
+peft>=0.10.0
+trl>=0.8.0
+torch>=2.0.0
+bitsandbytes>=0.43.0
+huggingface_hub>=0.22.0

@@ -1,0 +1,66 @@
+name: closed-loop-life-support
+version: "1.0.0"
+description: >
+  A real-world simulation of a closed-loop life support system aboard a space habitat.
+  An AI agent must manage oxygen production, water recycling, and food cultivation
+  to keep a crew alive with minimal resource waste over a multi-day mission.
+author: OpenEnv Hackathon Submission
+tags:
+  - openenv
+  - space
+  - life-support
+  - resource-management
+  - optimization
+  - simulation
+
+observation_space:
+  type: object
+  description: Current sensor readings from the habitat
+  fields:
+    co2_ppm: {type: float, range: [0, 5000], description: "CO2 concentration in parts per million"}
+    o2_percent: {type: float, range: [0, 30], description: "Oxygen percentage in habitat atmosphere"}
+    water_liters: {type: float, range: [0, 500], description: "Available potable water in liters"}
+    food_kg: {type: float, range: [0, 100], description: "Available food supply in kg"}
+    crew_size: {type: int, range: [1, 10], description: "Number of crew members currently active"}
+    plant_growth_rate: {type: float, range: [0, 1], description: "Current plant biomass growth rate (0-1)"}
+    water_recycling_rate: {type: float, range: [0, 1], description: "Fraction of waste water being recycled"}
+    day: {type: int, range: [1, 365], description: "Mission day number"}
+    crew_health: {type: float, range: [0, 1], description: "Average crew health score (0=critical, 1=optimal)"}
+    power_budget: {type: float, range: [0, 1], description: "Remaining power budget fraction for this cycle"}
+
+action_space:
+  type: object
+  description: Control inputs to the life support subsystems
+  fields:
+    increase_plant_growth: {type: float, range: [0, 1], description: "Boost plant photosynthesis (uses power, water)"}
+    recycle_water: {type: float, range: [0, 1], description: "Activate water reclamation intensity"}
+    adjust_oxygen: {type: float, range: [-1, 1], description: "Release O2 (+) or vent excess (+CO2 scrub) (-)"}
+    ration_food: {type: float, range: [0, 1], description: "Food rationing level (1=full rations, 0=emergency rations)"}
+    crew_activity: {type: float, range: [0, 1], description: "Permitted crew activity level (affects O2/CO2/food consumption)"}
+
+reward:
+  type: float
+  range: [-1, 1]
+  description: >
+    Shaped reward based on crew health, resource sustainability, and efficiency.
+    Partial credit for keeping all resources in safe ranges.
+    Penalty for critical failures (O2 below 19.5%, CO2 above 1000ppm, water=0, food=0).
+
+tasks:
+  - id: task_easy
+    name: "Single-Day Stabilization"
+    difficulty: easy
+    description: "Keep all life support parameters within safe ranges for 24 hours with a crew of 3."
+  - id: task_medium
+    name: "7-Day Resource Balance"
+    difficulty: medium
+    description: "Sustain a crew of 5 for 7 days while maintaining positive resource trends."
+  - id: task_hard
+    name: "30-Day Closed-Loop Optimization"
+    difficulty: hard
+    description: "Run a fully closed-loop mission for 30 days with 8 crew, minimizing resource imports while maximizing crew health."
+
+episode_length:
+  easy: 24
+  medium: 168
+  hard: 720
