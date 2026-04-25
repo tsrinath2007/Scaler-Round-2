@@ -145,7 +145,7 @@ def main():
         gradient_accumulation_steps=args.grad_accum,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.1,
+        warmup_steps=100,            # replaces deprecated warmup_ratio
         weight_decay=0.01,
         fp16=True,
         logging_steps=25,
@@ -157,23 +157,30 @@ def main():
         packing=False,
         report_to="none",
         seed=42,
-        # max_seq_length moved to SFTTrainer in newer trl versions
     )
 
     # ── Train ────────────────────────────────────────────────────────────────
     print("\n  Starting fine-tuning...\n")
+    import inspect
+    sft_params = inspect.signature(SFTTrainer.__init__).parameters
+
     trainer_kwargs = dict(
         model=model,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["eval"],
         peft_config=lora_config,
-        tokenizer=tokenizer,
     )
-    # max_seq_length location depends on trl version
-    import inspect
-    if "max_seq_length" in inspect.signature(SFTTrainer.__init__).parameters:
+    # trl >= 0.12 renamed 'tokenizer' to 'processing_class'
+    if "processing_class" in sft_params:
+        trainer_kwargs["processing_class"] = tokenizer
+    elif "tokenizer" in sft_params:
+        trainer_kwargs["tokenizer"] = tokenizer
+
+    # max_seq_length was moved from SFTConfig to SFTTrainer in some versions
+    if "max_seq_length" in sft_params:
         trainer_kwargs["max_seq_length"] = args.max_seq_len
+
     trainer = SFTTrainer(**trainer_kwargs)
 
     trainer.train()
