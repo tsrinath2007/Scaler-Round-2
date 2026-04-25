@@ -13,6 +13,19 @@ jobs:
           fetch-depth: 0
           lfs: true
 
+      - name: Verify HF_TOKEN is set
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "❌ HF_TOKEN secret is not set!"
+            echo "Fix: GitHub repo → Settings → Secrets → Actions → New secret"
+            echo "     Name: HF_TOKEN"
+            echo "     Value: token from https://huggingface.co/settings/tokens (Write scope)"
+            exit 1
+          fi
+          echo "✅ HF_TOKEN is present"
+
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

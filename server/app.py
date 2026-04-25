@@ -75,6 +75,7 @@ class GradeResponse(BaseModel):
 @app.get("/")
 def root():
     return {
+        "welcome": "Welcome to Artemis Moon Mission By BigByte",
         "name": "Closed-Loop Life Support OpenEnv",
         "version": "1.0.0",
         "tasks": ["task_easy", "task_medium", "task_hard"],
