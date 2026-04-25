@@ -12,10 +12,10 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-      - name: Push to hub
-        uses: huggingface/hub-sync@main
-        with:
-          github_repo_id: tsrinath2007/Scaler-Round-2
-          huggingface_repo_id: tsrinath/Scaler-Round-2
-          hf_token: ${{ secrets.HF_TOKEN }}
-          repo_type: space
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git remote add huggingface https://tsrinath:$HF_TOKEN@huggingface.co/spaces/tsrinath/Scaler-Round-2
+          git push huggingface main --force
