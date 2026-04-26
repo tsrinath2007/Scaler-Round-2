@@ -1,7 +1,8 @@
 """
-app.py — Among Us: Crisis | Artemis Life Support AI | By BigByte
+app.py — Among Us: Crisis | By BigByte
+Black · Orange · Blue theme. Auto-runs, saves log to file, Stop for analysis.
 """
-import sys
+import sys, json, datetime
 sys.path.insert(0, ".")
 
 import gradio as gr
@@ -16,8 +17,9 @@ from env.models import Action, Observation
 # ── Constants ─────────────────────────────────────────────────────────────────
 O2_SAFE_MIN, O2_SAFE_MAX = 19.5, 23.5
 CO2_SAFE_MAX = 1000
-MAX_HISTORY  = 100
-MAX_LOG      = 40
+MAX_HISTORY  = 120
+MAX_LOG      = 50
+LOG_FILE     = "simulation_log.json"
 
 EXPECTED = dict(task_easy=30.0, task_medium=25.0, task_hard=18.0)
 PPO_BASE  = dict(task_easy=23.9, task_medium=18.4, task_hard=10.8)
@@ -42,6 +44,25 @@ MISTAKE_DEFS = [
 def fresh_mistakes():
     return {mid: {"name": name, "step": None, "eliminated": False, "ok_streak": 0}
             for mid, name, _ in MISTAKE_DEFS}
+
+
+# ── Save to file ──────────────────────────────────────────────────────────────
+def save_log(history, mistakes, session_rewards, task_id):
+    try:
+        data = {
+            "saved_at":      datetime.datetime.now().isoformat(),
+            "task_id":       task_id,
+            "total_steps":   len(history),
+            "history":       history[-50:],          # last 50 steps
+            "mistakes":      {k: {kk: vv for kk, vv in v.items() if kk != "ok_streak"}
+                              for k, v in mistakes.items()},
+            "session_rewards": {k: round(float(np.mean(v)), 4)
+                                for k, v in session_rewards.items() if v},
+        }
+        with open(LOG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
 
 
 # ── AI agent ──────────────────────────────────────────────────────────────────
@@ -84,211 +105,232 @@ def ai_decide(obs: Observation) -> Action:
 
 
 # ── Reward chart ──────────────────────────────────────────────────────────────
-def make_reward_chart(history: list) -> plt.Figure:
-    fig, ax = plt.subplots(figsize=(7, 3.6), facecolor="#0f0323")
-    ax.set_facecolor("#1a0b2e")
+def make_reward_chart(history):
+    fig, ax = plt.subplots(figsize=(6, 3.2), facecolor="#0a0a0f")
+    ax.set_facecolor("#0f0f1a")
     if not history:
         ax.text(0.5, 0.5, "Waiting for data…", ha="center", va="center",
-                color="#555", fontsize=11, transform=ax.transAxes)
+                color="#555", fontsize=10, transform=ax.transAxes)
         ax.axis("off")
         return fig
 
     steps   = [h["step"] for h in history]
     rewards = [h["reward"] for h in history]
+    w       = max(1, len(rewards) // 8)
+    rolling = np.convolve(rewards, np.ones(w) / w, mode="valid")
+    rs      = steps[w - 1:]
 
-    # Rolling mean
-    window  = max(1, len(rewards) // 8)
-    rolling = np.convolve(rewards, np.ones(window) / window, mode="valid")
-    r_steps = steps[window - 1:]
+    ax.plot(steps, rewards, color="#3b82f6", lw=0.8, alpha=0.35, label="Step")
+    ax.plot(rs, rolling,    color="#ff8c00", lw=2.0, label=f"Avg ({w})")
+    ax.fill_between(rs, rolling, alpha=0.12, color="#ff8c00")
 
-    ax.plot(steps,   rewards, color="#38fedc", lw=0.8, alpha=0.4, label="Step reward")
-    ax.plot(r_steps, rolling, color="#00ff88", lw=2.2, label=f"Rolling avg ({window})")
-    ax.fill_between(r_steps, rolling, alpha=0.15, color="#00ff88")
-
-    ax.set_title("Mean Episode Reward per Rollout", color="#e0e0e0", fontsize=9, pad=5)
-    ax.set_xlabel("Step", color="#8b949e", fontsize=7)
-    ax.set_ylabel("Reward", color="#8b949e", fontsize=7)
-    ax.tick_params(colors="#8b949e", labelsize=6.5)
-    ax.legend(fontsize=7, loc="lower right", facecolor="#1a0b2e", edgecolor="#333",
-              labelcolor="#e0e0e0")
-    for s in ax.spines.values():
-        s.set_edgecolor("#30363d")
-    ax.grid(alpha=0.15, color="#333")
-    plt.tight_layout(pad=0.5)
+    ax.set_title("Reward per Rollout", color="#e0e0e0", fontsize=9)
+    ax.set_xlabel("Step", color="#666", fontsize=7)
+    ax.set_ylabel("Reward", color="#666", fontsize=7)
+    ax.tick_params(colors="#666", labelsize=6)
+    ax.legend(fontsize=7, facecolor="#0f0f1a", edgecolor="#222", labelcolor="#ccc")
+    for s in ax.spines.values(): s.set_edgecolor("#222")
+    ax.grid(alpha=0.1, color="#333")
+    plt.tight_layout(pad=0.4)
     return fig
 
 
 # ── Comparison bar chart ──────────────────────────────────────────────────────
-def make_comparison_chart(session_rewards: dict) -> plt.Figure:
-    tasks   = ["task_easy", "task_medium", "task_hard"]
-    labels  = ["Easy", "Medium", "Hard"]
-    x       = np.arange(len(tasks))
-    width   = 0.25
+def make_comparison_chart(session_rewards):
+    tasks  = ["task_easy", "task_medium", "task_hard"]
+    labels = ["Easy", "Medium", "Hard"]
+    x, w   = np.arange(3), 0.25
 
-    expected_vals = [EXPECTED[t] for t in tasks]
-    ppo_vals      = [PPO_BASE[t]  for t in tasks]
-    trained_vals  = [session_rewards.get(t, 0.0) for t in tasks]
+    exp_v  = [EXPECTED[t] for t in tasks]
+    ppo_v  = [PPO_BASE[t]  for t in tasks]
+    trn_v  = [session_rewards.get(t, 0.0) for t in tasks]
 
-    fig, ax = plt.subplots(figsize=(8, 3.4), facecolor="#0f0323")
-    ax.set_facecolor("#1a0b2e")
+    fig, ax = plt.subplots(figsize=(9, 3.0), facecolor="#0a0a0f")
+    ax.set_facecolor("#0f0f1a")
 
-    b1 = ax.bar(x - width, expected_vals, width, label="Expected Model",
-                color="#58a6ff", alpha=0.85, edgecolor="#1a0b2e")
-    b2 = ax.bar(x,          ppo_vals,     width, label="PPO Model",
-                color="#ef7d0e", alpha=0.85, edgecolor="#1a0b2e")
-    b3 = ax.bar(x + width,  trained_vals, width, label="Trained Model (session)",
-                color="#00ff88", alpha=0.85, edgecolor="#1a0b2e")
+    b1 = ax.bar(x - w, exp_v, w, label="Expected", color="#3b82f6", alpha=0.85, edgecolor="#0a0a0f")
+    b2 = ax.bar(x,     ppo_v, w, label="PPO",      color="#ff8c00", alpha=0.85, edgecolor="#0a0a0f")
+    b3 = ax.bar(x + w, trn_v, w, label="Trained",  color="#e0e0e0", alpha=0.75, edgecolor="#0a0a0f")
 
     for bars in (b1, b2, b3):
         for bar in bars:
             h = bar.get_height()
-            if h > 0:
+            if h > 0.5:
                 ax.annotate(f"{h:.1f}",
                             xy=(bar.get_x() + bar.get_width() / 2, h),
                             xytext=(0, 3), textcoords="offset points",
-                            ha="center", fontsize=6.5, color="#e0e0e0")
+                            ha="center", fontsize=6.5, color="#ccc")
 
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, color="#e0e0e0", fontsize=8)
-    ax.set_ylabel("Avg Reward", color="#8b949e", fontsize=7)
-    ax.set_title("Model Comparison — Expected · PPO · Trained", color="#e0e0e0", fontsize=9, pad=5)
-    ax.legend(fontsize=7, facecolor="#1a0b2e", edgecolor="#333", labelcolor="#e0e0e0")
-    ax.tick_params(colors="#8b949e", labelsize=6.5)
-    for s in ax.spines.values():
-        s.set_edgecolor("#30363d")
-    ax.grid(axis="y", alpha=0.15, color="#333")
-    plt.tight_layout(pad=0.5)
+    ax.set_xticklabels(labels, color="#ccc", fontsize=8)
+    ax.set_ylabel("Avg Reward", color="#666", fontsize=7)
+    ax.set_title("Model Comparison — Expected  ·  PPO  ·  Trained", color="#e0e0e0", fontsize=9)
+    ax.legend(fontsize=7, facecolor="#0f0f1a", edgecolor="#222", labelcolor="#ccc")
+    ax.tick_params(colors="#666", labelsize=6)
+    for s in ax.spines.values(): s.set_edgecolor("#222")
+    ax.grid(axis="y", alpha=0.1, color="#333")
+    plt.tight_layout(pad=0.4)
     return fig
 
 
-# ── Mistakes panel HTML ───────────────────────────────────────────────────────
-def render_mistakes(mistakes: dict) -> str:
-    elim_count = sum(1 for m in mistakes.values() if m["eliminated"])
-    total      = len(mistakes)
-    items_html = ""
+# ── Mistakes HTML ─────────────────────────────────────────────────────────────
+def render_mistakes(mistakes):
+    elim = sum(1 for m in mistakes.values() if m["eliminated"])
+    total = len(mistakes)
+    rows = ""
     for m in mistakes.values():
         if m["step"] is not None:
             if m["eliminated"]:
-                icon    = '<span style="color:#00ff88;font-size:1.1em;">✓</span>'
-                badge   = '<span style="background:#00ff88;color:#000;border-radius:4px;padding:1px 7px;font-size:.72em;font-weight:700;letter-spacing:1px;">ELIMINATED</span>'
-                opacity = "1"
+                dot   = f'<span style="color:#ff8c00">✓</span>'
+                badge = '<span style="background:#ff8c00;color:#000;padding:1px 8px;border-radius:3px;font-size:.7em;font-weight:700">ELIMINATED</span>'
             else:
-                icon    = '<span style="color:#ef7d0e;font-size:1.1em;">!</span>'
-                badge   = '<span style="background:#ef7d0e;color:#000;border-radius:4px;padding:1px 7px;font-size:.72em;font-weight:700;letter-spacing:1px;">ENCOUNTERED</span>'
-                opacity = "1"
+                dot   = f'<span style="color:#3b82f6">!</span>'
+                badge = '<span style="background:#3b82f6;color:#fff;padding:1px 8px;border-radius:3px;font-size:.7em;font-weight:700">ENCOUNTERED</span>'
+            detail = f"Step {m['step']:,} · first encountered"
         else:
-            icon    = '<span style="color:#555;font-size:1.1em;">○</span>'
-            badge   = '<span style="color:#555;font-size:.72em;">pending</span>'
-            opacity = "0.45"
+            dot   = '<span style="color:#333">○</span>'
+            badge = '<span style="color:#444;font-size:.7em">pending</span>'
+            detail = "Not yet encountered"
 
-        step_txt = f"Step {m['step']:,} · first encountered" if m["step"] else "Not yet encountered"
-        items_html += f"""
-        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;
-                    border-bottom:1px solid #2a1a4a;opacity:{opacity}">
-            <div style="width:22px;height:22px;border-radius:50%;
-                        background:#1a0b2e;border:2px solid #00ff88;
+        rows += f"""
+        <div style="display:flex;gap:10px;align-items:flex-start;
+                    padding:7px 0;border-bottom:1px solid #1a1a2a">
+            <div style="width:20px;height:20px;border:1px solid #333;border-radius:50%;
                         display:flex;align-items:center;justify-content:center;
-                        flex-shrink:0;margin-top:2px">{icon}</div>
+                        flex-shrink:0;font-size:.85em">{dot}</div>
             <div>
-                <div style="color:#e0e0e0;font-size:.88em;font-weight:600">{m['name']}</div>
-                <div style="color:#8b949e;font-size:.75em;margin:2px 0 4px">{step_txt}</div>
+                <div style="color:#e0e0e0;font-size:.85em;font-weight:600">{m['name']}</div>
+                <div style="color:#555;font-size:.73em;margin:2px 0 4px">{detail}</div>
                 {badge}
             </div>
         </div>"""
 
     return f"""
-    <div style="background:#1a0b2e;border:1px solid #00ff88;border-radius:12px;
-                padding:14px 16px;box-shadow:0 0 18px rgba(0,255,136,0.15);
-                font-family:'Courier New',monospace;height:100%">
-        <div style="display:flex;justify-content:space-between;align-items:center;
-                    margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #2a1a4a">
-            <span style="color:#e0e0e0;font-size:1em;font-weight:700;letter-spacing:1px">
-                Mistakes Eliminated
+    <div style="background:#0f0f1a;border:1px solid #ff8c00;border-radius:10px;padding:14px 16px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:10px;
+                    padding-bottom:8px;border-bottom:1px solid #1a1a2a">
+            <span style="color:#ff8c00;font-weight:700;letter-spacing:1px;font-size:.92em">
+                MISTAKES ELIMINATED
             </span>
-            <span style="color:#00ff88;font-size:1em;font-weight:700">{elim_count}/{total}</span>
+            <span style="color:#ff8c00;font-weight:700">{elim}/{total}</span>
         </div>
-        <div style="color:#8b949e;font-size:.75em;margin-bottom:10px">
-            Encoded into policy — permanently locked
-        </div>
-        {items_html}
+        <div style="color:#555;font-size:.73em;margin-bottom:8px">Encoded into policy — permanently locked</div>
+        {rows}
     </div>"""
 
 
 # ── Alarm monitor HTML ────────────────────────────────────────────────────────
-def render_alarm(obs: Observation, green_streak: int, fire_active: bool,
-                 total_steps: int, max_steps: int) -> str:
-
-    def bar_row(label, value, max_val, alarm_color, status_text):
+def render_alarm(obs: Observation, green_streak, fire_active, step_num, max_steps):
+    def row(label, value, max_val, tier):
         pct = min(100, max(0, value / max_val * 100))
-        glow = {"GREEN": "rgba(0,255,136,0.4)", "YELLOW": "rgba(255,204,0,0.4)",
-                "RED": "rgba(255,68,68,0.5)", "CRITICAL": "rgba(255,0,0,0.7)"}
-        bar_c = {"GREEN": "#00ff88", "YELLOW": "#ffcc00",
-                 "RED": "#ff4444", "CRITICAL": "#ff0000"}
+        colors = {"GREEN": "#3b82f6", "YELLOW": "#ff8c00", "RED": "#ff4444", "CRITICAL": "#ff0000"}
+        c = colors.get(tier, "#3b82f6")
         return f"""
-        <div style="display:grid;grid-template-columns:70px 1fr 80px;
-                    align-items:center;gap:8px;margin:7px 0">
-            <span style="color:#8b949e;font-size:.78em;letter-spacing:1px">{label}</span>
-            <div style="background:#2a1a4a;border-radius:4px;height:10px;overflow:hidden">
-                <div style="width:{pct}%;height:100%;background:{bar_c[alarm_color]};
-                            box-shadow:0 0 6px {glow[alarm_color]};
-                            transition:width .4s ease;border-radius:4px"></div>
+        <div style="display:grid;grid-template-columns:65px 1fr 80px;
+                    align-items:center;gap:8px;margin:6px 0">
+            <span style="color:#888;font-size:.76em;letter-spacing:1px">{label}</span>
+            <div style="background:#1a1a2a;border-radius:3px;height:9px;overflow:hidden">
+                <div style="width:{pct}%;height:100%;background:{c};border-radius:3px"></div>
             </div>
-            <span style="color:{bar_c[alarm_color]};font-size:.78em;font-weight:700;
-                         letter-spacing:1px;text-align:right">{status_text}</span>
+            <span style="color:{c};font-size:.76em;font-weight:700;text-align:right">{tier}</span>
         </div>"""
 
-    def tier(val, ok, warn, danger):
-        if val <= ok:   return "GREEN"
-        if val <= warn: return "YELLOW"
-        if val <= danger: return "RED"
-        return "CRITICAL"
+    def t_co2(v):
+        return "GREEN" if v<=1000 else ("YELLOW" if v<=2000 else ("RED" if v<=3000 else "CRITICAL"))
+    def t_inv(v, ok, warn, danger):
+        return "GREEN" if v>=ok else ("YELLOW" if v>=warn else ("RED" if v>=danger else "CRITICAL"))
+    def t_o2(v):
+        return "GREEN" if O2_SAFE_MIN<=v<=O2_SAFE_MAX else ("RED" if v<17 or v>25 else "YELLOW")
 
-    def tier_inv(val, ok, warn, danger):
-        if val >= ok:   return "GREEN"
-        if val >= warn: return "YELLOW"
-        if val >= danger: return "RED"
-        return "CRITICAL"
-
-    o2_tier    = "GREEN" if O2_SAFE_MIN <= obs.o2_percent <= O2_SAFE_MAX else ("RED" if obs.o2_percent < 17 or obs.o2_percent > 25 else "YELLOW")
-    co2_tier   = tier(obs.co2_ppm, 1000, 2000, 3000)
-    water_tier = tier_inv(obs.water_liters, 50, 20, 5)
-    food_tier  = tier_inv(obs.food_kg, 20, 5, 1)
-    power_tier = tier_inv(obs.power_budget, 0.5, 0.25, 0.1)
-    plant_tier = tier_inv(obs.solar_panel_health, 0.8, 0.5, 0.2)
-
-    fire_color = "#ff4444" if fire_active else "#00ff88"
-    fire_text  = "ACTIVE 🔥" if fire_active else "INACTIVE"
-    streak_color = "#00ff88" if green_streak > 10 else ("#ffcc00" if green_streak > 0 else "#ff4444")
-
-    rows = (
-        bar_row("O₂",    obs.o2_percent,        30,   o2_tier,    o2_tier)
-      + bar_row("CO₂",   obs.co2_ppm,           4000, co2_tier,   co2_tier)
-      + bar_row("WATER", obs.water_liters,       500,  water_tier, water_tier)
-      + bar_row("FOOD",  obs.food_kg,            100,  food_tier,  food_tier)
-      + bar_row("PLANTS",obs.solar_panel_health, 1.0,  plant_tier, plant_tier)
-      + bar_row("POWER", obs.power_budget,       1.0,  power_tier, power_tier)
-    )
+    fire_c = "#ff4444" if fire_active else "#3b82f6"
+    fire_t = "ACTIVE" if fire_active else "INACTIVE"
+    sk_c   = "#ff8c00" if green_streak > 10 else ("#3b82f6" if green_streak > 0 else "#ff4444")
 
     return f"""
-    <div style="background:#1a0b2e;border:1px solid #38fedc;border-radius:12px;
-                padding:14px 16px;box-shadow:0 0 18px rgba(56,254,220,0.15);
-                font-family:'Courier New',monospace;height:100%">
-        <div style="color:#38fedc;font-size:.82em;font-weight:700;letter-spacing:2px;
-                    margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #2a1a4a">
+    <div style="background:#0f0f1a;border:1px solid #3b82f6;border-radius:10px;padding:14px 16px">
+        <div style="color:#3b82f6;font-size:.8em;font-weight:700;letter-spacing:2px;
+                    margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid #1a1a2a">
             ▶ LIVE ALARM MONITOR · SUBSYSTEM STATUS
         </div>
-        {rows}
-        <div style="display:flex;justify-content:space-between;margin-top:12px;
-                    padding-top:8px;border-top:1px solid #2a1a4a;font-size:.76em">
-            <span style="color:{streak_color}">🟢 Green Streak: {green_streak}</span>
-            <span style="color:{fire_color}">🔥 Fire Risk: {fire_text}</span>
-            <span style="color:#8b949e">Step: {total_steps} / {max_steps}</span>
+        {row("O₂",    obs.o2_percent,        30,   t_o2(obs.o2_percent))}
+        {row("CO₂",   obs.co2_ppm,           4000, t_co2(obs.co2_ppm))}
+        {row("WATER", obs.water_liters,       500,  t_inv(obs.water_liters, 50, 20, 5))}
+        {row("FOOD",  obs.food_kg,            100,  t_inv(obs.food_kg, 20, 5, 1))}
+        {row("PLANTS",obs.solar_panel_health, 1.0,  t_inv(obs.solar_panel_health, .8, .5, .2))}
+        {row("POWER", obs.power_budget,       1.0,  t_inv(obs.power_budget, .5, .25, .1))}
+        <div style="display:flex;justify-content:space-between;margin-top:10px;
+                    padding-top:8px;border-top:1px solid #1a1a2a;font-size:.74em">
+            <span style="color:{sk_c}">● Streak: {green_streak}</span>
+            <span style="color:{fire_c}">🔥 Fire: {fire_t}</span>
+            <span style="color:#555">Step {step_num}/{max_steps}</span>
         </div>
     </div>"""
 
 
+# ── Complete analysis (on Stop) ───────────────────────────────────────────────
+def build_analysis(history, mistakes, session_rewards, task_id):
+    if not history:
+        return "No data yet — run the simulation first."
+
+    rewards   = [h["reward"] for h in history]
+    healths   = [h["health"] for h in history]
+    n         = len(history)
+    elim      = sum(1 for m in mistakes.values() if m["eliminated"])
+    encnt     = sum(1 for m in mistakes.values() if m["step"] is not None)
+
+    lines = [
+        f"{'='*52}",
+        f"  AMONG US: CRISIS — COMPLETE ANALYSIS",
+        f"  Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"{'='*52}",
+        f"",
+        f"  Task          : {task_id}",
+        f"  Total Steps   : {n}",
+        f"",
+        f"  REWARD STATS",
+        f"  ├ Mean        : {np.mean(rewards):+.4f}",
+        f"  ├ Max         : {np.max(rewards):+.4f}",
+        f"  ├ Min         : {np.min(rewards):+.4f}",
+        f"  └ Std Dev     : {np.std(rewards):.4f}",
+        f"",
+        f"  CREW HEALTH",
+        f"  ├ Mean        : {np.mean(healths):.4f}",
+        f"  ├ Final       : {healths[-1]:.4f}",
+        f"  └ Min seen    : {np.min(healths):.4f}",
+        f"",
+        f"  MISTAKES",
+        f"  ├ Encountered : {encnt}/7",
+        f"  └ Eliminated  : {elim}/7",
+        f"",
+        f"  MISTAKE BREAKDOWN",
+    ]
+    for m in mistakes.values():
+        status = "ELIMINATED" if m["eliminated"] else ("ENCOUNTERED" if m["step"] else "NEVER SEEN")
+        step_s = f"@ step {m['step']:,}" if m["step"] else ""
+        lines.append(f"  {'✓' if m['eliminated'] else '○'} {m['name'][:35]:<35} {status} {step_s}")
+
+    lines += [
+        f"",
+        f"  SESSION AVG REWARDS (all tasks)",
+    ]
+    for t in ["task_easy", "task_medium", "task_hard"]:
+        v = session_rewards.get(t, [])
+        if v:
+            lines.append(f"  ├ {t:<15}: {np.mean(v):+.4f}")
+
+    lines += [f"", f"  Full log saved → {LOG_FILE}", f"{'='*52}"]
+
+    try:
+        with open("analysis_report.txt", "w") as f:
+            f.write("\n".join(lines))
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+
 # ── Core step ─────────────────────────────────────────────────────────────────
-def step(env_state, history, mistakes, logs, session_rewards, task_id):
+def step_fn(env_state, history, mistakes, logs, session_rewards, task_id):
     if env_state is None:
         env_state = LifeSupportEnv(task_id=task_id or "task_easy")
         env_state.reset()
@@ -299,195 +341,190 @@ def step(env_state, history, mistakes, logs, session_rewards, task_id):
 
     obs    = env._make_observation()
     action = ai_decide(obs)
-    obs_after, reward, done, info = env.step(action)
+    obs_a, reward, done, info = env.step(action)
 
-    step_num = len(history) + 1
-
-    # Update history
+    sn = len(history) + 1
     history = (history + [{
-        "step":   step_num,
-        "o2":     obs_after.o2_percent,
-        "co2":    obs_after.co2_ppm,
-        "water":  obs_after.water_liters,
-        "food":   obs_after.food_kg,
-        "health": obs_after.crew_health,
-        "reward": round(reward, 4),
+        "step": sn, "o2": obs_a.o2_percent, "co2": obs_a.co2_ppm,
+        "water": obs_a.water_liters, "food": obs_a.food_kg,
+        "health": obs_a.crew_health, "reward": round(reward, 4),
     }])[-MAX_HISTORY:]
 
-    # Update session rewards for current task
+    # Session rewards
     session_rewards = dict(session_rewards)
     prev = session_rewards.get(task_id, [])
-    prev = (prev + [reward])[-200:]
-    session_rewards[task_id] = prev
+    session_rewards[task_id] = (prev + [reward])[-300:]
     session_avg = {k: float(np.mean(v)) for k, v in session_rewards.items()}
 
-    # Update mistakes
+    # Mistakes
     mistakes = dict(mistakes)
     for mid, name, trigger_fn in MISTAKE_DEFS:
         m = dict(mistakes[mid])
-        triggered = trigger_fn(obs_after, info)
-        if triggered and m["step"] is None:
-            m["step"] = step_num
-            m["ok_streak"] = 0
+        hit = trigger_fn(obs_a, info)
+        if hit and m["step"] is None:
+            m["step"] = sn; m["ok_streak"] = 0
         if m["step"] is not None and not m["eliminated"]:
-            if triggered:
-                m["ok_streak"] = 0
-            else:
-                m["ok_streak"] = m.get("ok_streak", 0) + 1
-                if m["ok_streak"] >= 5:
-                    m["eliminated"] = True
+            m["ok_streak"] = 0 if hit else m.get("ok_streak", 0) + 1
+            if m["ok_streak"] >= 5:
+                m["eliminated"] = True
         mistakes[mid] = m
 
-    # Log line
-    ev   = f" ⚡{obs_after.event_name[:8]}" if obs_after.event_name else ""
-    h_ic = "🟢" if obs_after.crew_health > 0.8 else ("🟡" if obs_after.crew_health > 0.5 else "🔴")
-    line = (f"[{step_num:04d}] O2:{obs_after.o2_percent:.1f}% "
-            f"CO2:{obs_after.co2_ppm:.0f}ppm "
-            f"H:{obs_after.crew_health:.3f} {h_ic} "
-            f"R:{reward:+.3f}{ev}")
+    # Log
+    ev   = f" [{obs_a.event_name[:8]}]" if obs_a.event_name else ""
+    ic   = "▲" if obs_a.crew_health > 0.8 else ("▼" if obs_a.crew_health < 0.5 else "─")
+    line = (f"[{sn:04d}] O2:{obs_a.o2_percent:.1f}% CO2:{obs_a.co2_ppm:.0f}ppm "
+            f"H:{obs_a.crew_health:.3f}{ic} R:{reward:+.3f}{ev}")
     logs = ([line] + logs)[:MAX_LOG]
 
-    fire_active  = obs_after.o2_percent > 25.0
-    max_steps    = env.config["max_steps"]
+    # Save every 10 steps
+    if sn % 10 == 0:
+        save_log(history, mistakes, session_rewards, task_id)
+
+    fire = obs_a.o2_percent > 25.0
 
     return (
-        env_state,
-        history,
-        mistakes,
-        logs,
-        session_rewards,
+        env_state, history, mistakes, logs, session_rewards,
         make_reward_chart(history),
         make_comparison_chart(session_avg),
         render_mistakes(mistakes),
-        render_alarm(obs_after, env._green_streak, fire_active, step_num, max_steps),
+        render_alarm(obs_a, env._green_streak, fire, sn, env.config["max_steps"]),
         "\n".join(logs),
+        "",   # clear analysis panel while running
     )
 
 
-def reset_mission(task_id):
+def reset_fn(task_id):
     env = LifeSupportEnv(task_id=task_id or "task_easy")
     env.reset()
-    mistakes  = fresh_mistakes()
-    obs_dummy = env._make_observation()
+    m   = fresh_mistakes()
+    obs = env._make_observation()
     return (
-        env, [], mistakes, [], {},
+        env, [], m, [], {},
         make_reward_chart([]),
         make_comparison_chart({}),
-        render_mistakes(mistakes),
-        render_alarm(obs_dummy, 0, False, 0, env.config["max_steps"]),
-        "Mission started. AI is taking control…",
+        render_mistakes(m),
+        render_alarm(obs, 0, False, 0, env.config["max_steps"]),
+        "Mission reset. Starting…",
+        "",
     )
 
 
-# ── CSS / Theme ───────────────────────────────────────────────────────────────
-CSS = """
-/* ── Among Us Space Theme ─────────────────────────────────── */
-body, .gradio-container { background:#0a0015 !important; }
+def stop_fn(_env_state, history, mistakes, session_rewards, task_id):
+    save_log(history, mistakes, session_rewards, task_id)
+    report = build_analysis(history, mistakes, session_rewards, task_id)
+    return gr.Timer(active=False), report
 
-.gradio-container { max-width:1280px !important; margin:auto; }
+
+# ── CSS ───────────────────────────────────────────────────────────────────────
+CSS = """
+body, .gradio-container { background:#080810 !important; }
+.gradio-container { max-width:1200px !important; margin:auto; }
 
 .au-header {
-    text-align:center; padding:18px 0 10px;
-    background:linear-gradient(135deg,#1a0b2e 0%,#0d0428 100%);
-    border-bottom:2px solid #00ff88;
-    box-shadow:0 0 30px rgba(0,255,136,.25);
-    border-radius:0 0 16px 16px; margin-bottom:12px;
+    text-align:center; padding:16px 0 10px;
+    border-bottom:2px solid #ff8c00;
+    background:#0a0a14; border-radius:0 0 12px 12px;
+    margin-bottom:14px;
 }
 .au-header h1 {
-    font-size:2em; margin:0; color:#00ff88; letter-spacing:4px;
-    text-shadow:0 0 18px #00ff88, 0 0 35px #00aa55;
-    font-family:'Courier New',monospace;
+    font-size:1.9em; margin:0; color:#ff8c00;
+    text-shadow:0 0 16px rgba(255,140,0,.6);
+    font-family:'Courier New',monospace; letter-spacing:5px;
 }
-.au-header p { color:#8b949e; margin:4px 0 0; font-size:.88em; }
+.au-header p { color:#555; margin:4px 0 0; font-size:.84em; }
 
-.log-box textarea {
-    background:#0f0323 !important; color:#38fedc !important;
-    font-family:'Courier New',monospace !important; font-size:.78em !important;
-    border:1px solid #38fedc !important; border-radius:8px !important;
+.section-title {
+    color:#ff8c00; font-size:.8em; font-weight:700;
+    letter-spacing:2px; margin-bottom:6px;
 }
 
-.gr-button-primary {
-    background:linear-gradient(135deg,#00ff88,#00aa55) !important;
-    color:#000 !important; font-weight:700 !important;
-    border:none !important; letter-spacing:1px !important;
+textarea {
+    background:#0a0a14 !important; color:#3b82f6 !important;
+    font-family:'Courier New',monospace !important; font-size:.77em !important;
+    border:1px solid #1a1a2a !important; border-radius:6px !important;
 }
+
+.analysis-box textarea {
+    color:#ff8c00 !important; border:1px solid #ff8c00 !important;
+    font-size:.78em !important;
+}
+
+button.primary { background:#ff8c00 !important; color:#000 !important; font-weight:700 !important; }
+button.stop-btn { background:#3b82f6 !important; color:#fff !important; font-weight:700 !important; }
 """
-
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 with gr.Blocks(
     title="Among Us: Crisis — By BigByte",
-    theme=gr.themes.Base(primary_hue="green", neutral_hue="slate"),
+    theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"),
     css=CSS,
 ) as demo:
 
-    env_state      = gr.State(value=None)
-    history        = gr.State(value=[])
-    mistakes_state = gr.State(value=fresh_mistakes())
-    logs_state     = gr.State(value=[])
-    session_rews   = gr.State(value={})
+    env_state    = gr.State(None)
+    history_s    = gr.State([])
+    mistakes_s   = gr.State(fresh_mistakes())
+    logs_s       = gr.State([])
+    session_s    = gr.State({})
 
-    # Header
+    # ── Header ────────────────────────────────────────────────────────────────
     gr.HTML("""
         <div class="au-header">
             <h1>🚀 AMONG US — CRISIS</h1>
-            <p>By <strong>BigByte</strong> &nbsp;·&nbsp; AI life support agent
-               &nbsp;·&nbsp; self-improving · auto-runs on load</p>
+            <p>By <strong>BigByte</strong> &nbsp;·&nbsp; AI life support agent · auto-runs on load</p>
         </div>
     """)
 
-    # Controls
+    # ── Controls ──────────────────────────────────────────────────────────────
     with gr.Row():
         task_sel  = gr.Dropdown(["task_easy","task_medium","task_hard"],
                                 value="task_easy", label="Mission", scale=2)
-        reset_btn = gr.Button("🔄 Reset Mission", variant="secondary", scale=1)
+        reset_btn = gr.Button("🔄 Reset", scale=1)
+        stop_btn  = gr.Button("⏹ Stop + Analyse", variant="primary", scale=1)
 
-    # ── Row 1: Training Logs (left) + Reward Chart (right) ───────────────────
+    # ── Row 1: Logs | Reward Chart ────────────────────────────────────────────
+    gr.HTML('<div class="section-title">▶ TRAINING LOGS &nbsp;&nbsp;&nbsp; | &nbsp;&nbsp;&nbsp; REWARD CHART</div>')
     with gr.Row():
         with gr.Column(scale=1):
-            gr.Markdown("### 📋 Training Logs")
-            logs_box = gr.Textbox(
-                label="", lines=18, interactive=False,
-                value="Initialising…", elem_classes=["log-box"],
-            )
+            logs_box = gr.Textbox(label="", lines=16, interactive=False, value="Initialising…")
         with gr.Column(scale=2):
-            gr.Markdown("### 📈 Reward Chart")
             reward_chart = gr.Plot(label="", show_label=False)
 
-    # ── Row 2: Model Comparison Bar Chart ────────────────────────────────────
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("### 📊 Model Comparison — Expected · PPO · Trained")
-            compare_chart = gr.Plot(label="", show_label=False)
+    # ── Row 2: Model Comparison ───────────────────────────────────────────────
+    gr.HTML('<div class="section-title">▶ MODEL COMPARISON</div>')
+    compare_chart = gr.Plot(label="", show_label=False)
 
-    # ── Row 3: Mistakes Eliminated (left) + Live Alarm Monitor (right) ───────
-    with gr.Row():
-        with gr.Column(scale=1):
-            gr.Markdown("### 🎯 Mistakes Eliminated")
-            mistakes_html = gr.HTML()
-        with gr.Column(scale=1):
-            gr.Markdown("### 🚨 Live Alarm Monitor")
-            alarm_html = gr.HTML()
+    # ── Row 3: Mistakes ───────────────────────────────────────────────────────
+    gr.HTML('<div class="section-title">▶ MISTAKES ELIMINATED</div>')
+    mistakes_html = gr.HTML()
 
-    # ── Wire up ───────────────────────────────────────────────────────────────
-    step_inputs  = [env_state, history, mistakes_state, logs_state, session_rews, task_sel]
-    step_outputs = [env_state, history, mistakes_state, logs_state, session_rews,
-                    reward_chart, compare_chart, mistakes_html, alarm_html, logs_box]
+    # ── Row 4: Live Alarm ─────────────────────────────────────────────────────
+    gr.HTML('<div class="section-title">▶ LIVE ALARM MONITOR</div>')
+    alarm_html = gr.HTML()
+
+    # ── Row 5: Analysis (shown after Stop) ───────────────────────────────────
+    gr.HTML('<div class="section-title">▶ COMPLETE ANALYSIS</div>')
+    analysis_box = gr.Textbox(label="", lines=20, interactive=False,
+                              value="Press ⏹ Stop + Analyse to generate report.",
+                              elem_classes=["analysis-box"])
+
+    # ── Wire ──────────────────────────────────────────────────────────────────
+    INPUTS  = [env_state, history_s, mistakes_s, logs_s, session_s, task_sel]
+    OUTPUTS = [env_state, history_s, mistakes_s, logs_s, session_s,
+               reward_chart, compare_chart, mistakes_html, alarm_html,
+               logs_box, analysis_box]
 
     timer = gr.Timer(value=2, active=True)
-    timer.tick(fn=step, inputs=step_inputs, outputs=step_outputs)
+    timer.tick(fn=step_fn, inputs=INPUTS, outputs=OUTPUTS)
 
-    reset_btn.click(
-        fn=reset_mission, inputs=[task_sel],
-        outputs=[env_state, history, mistakes_state, logs_state, session_rews,
-                 reward_chart, compare_chart, mistakes_html, alarm_html, logs_box],
+    reset_btn.click(fn=reset_fn, inputs=[task_sel], outputs=OUTPUTS)
+
+    stop_btn.click(
+        fn=stop_fn,
+        inputs=[env_state, history_s, mistakes_s, session_s, task_sel],
+        outputs=[timer, analysis_box],
     )
 
-    demo.load(
-        fn=reset_mission, inputs=[task_sel],
-        outputs=[env_state, history, mistakes_state, logs_state, session_rews,
-                 reward_chart, compare_chart, mistakes_html, alarm_html, logs_box],
-    )
+    demo.load(fn=reset_fn, inputs=[task_sel], outputs=OUTPUTS)
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch()
