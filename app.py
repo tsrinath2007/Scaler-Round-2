@@ -281,7 +281,7 @@ CSS = """
 """
 
 with gr.Blocks(theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"), css=CSS) as demo:
-    gr.Markdown("# 🚀 Life Support RL Trainer")
+    gr.Markdown("# 🚀 Among Us - Crisis")
     gr.Markdown("Train a PPO agent to keep your crew alive in a space habitat.")
     
     with gr.Row():
@@ -319,6 +319,8 @@ with gr.Blocks(theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"), 
     
     timer = gr.Timer(value=2)
     timer.tick(fn=poll_updates, outputs=[status_output, logs_output, chart_output])
+
+    gr.HTML('<div style="text-align: center; color: #444; font-size: 0.8em; margin-top: 50px; padding-bottom: 20px; border-top: 1px solid #1a1a2a; padding-top: 20px;">By <strong>BigByte</strong></div>')
 
 if __name__ == "__main__":
     demo.queue()
