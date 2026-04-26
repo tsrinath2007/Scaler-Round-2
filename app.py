@@ -104,10 +104,13 @@ def _make_chart(data, x_label, y_label, title):
 
 
 # ── Shared state — PPO ───────────────────────────────────────────────────────
-_ppo_rewards  = []
-_ppo_logs     = []
-_ppo_status   = "Idle — press Start PPO Training to begin."
-_ppo_running  = False
+_ppo_rewards       = []
+_ppo_logs          = []
+_ppo_status        = "Idle — press Start PPO Training to begin."
+_ppo_running       = False
+# Stores final mean EPISODE reward after each completed training run.
+# Same scale as PPO_BASE (cumulative episode reward, not per-step).
+_ppo_trained_scores: dict = {}
 
 # ── Shared state — TRL ───────────────────────────────────────────────────────
 _trl_rewards  = []
@@ -159,7 +162,10 @@ def _run_ppo(task_id, total_steps, n_envs):
                     batch_size=256, n_epochs=10, gamma=0.99, verbose=0)
         model.learn(total_timesteps=total_steps, callback=PPOCallback())
         model.save(f"ppo_{task_id}")
-        final = f"{_ppo_rewards[-1][1]:.3f}" if _ppo_rewards else "N/A"
+        final_val = _ppo_rewards[-1][1] if _ppo_rewards else 0.0
+        final = f"{final_val:.3f}"
+        # Store actual cumulative episode reward so comparison chart is on the right scale
+        _ppo_trained_scores[task_id] = final_val
         _ppo_logs.append(f"✅ Done! Saved ppo_{task_id}.zip  |  Final mean reward: {final}")
         _ppo_status = f"Done! Final mean reward: {final}"
     except Exception as e:
@@ -403,6 +409,69 @@ def _trl_chart():
     )
 
 
+# ── Model comparison chart ────────────────────────────────────────────────────
+# All values = mean cumulative EPISODE reward (same unit as PPO ep_info_buffer["r"]).
+# "Expected" = theoretical upper bound per task.
+# "PPO Base" = known reference scores from SB3-PPO on default hyperparams.
+# "Trained"  = actual final mean reward from a completed training run (0 if not yet done).
+_EXPECTED = {"task_easy": 30.0, "task_medium": 55.0, "task_hard": 90.0}
+_PPO_BASE = {"task_easy": 23.9, "task_medium": 18.4, "task_hard": 10.8}
+
+
+def _comparison_chart():
+    tasks  = ["task_easy", "task_medium", "task_hard"]
+    labels = ["Easy (24 steps)", "Medium (168 steps)", "Hard (720 steps)"]
+
+    exp_v  = [_EXPECTED[t] for t in tasks]
+    ppo_v  = [_PPO_BASE[t]  for t in tasks]
+    trn_v  = [_ppo_trained_scores.get(t, 0.0) for t in tasks]
+
+    def bar(name, vals, color, pattern=None):
+        return go.Bar(
+            name=name, x=labels, y=vals,
+            marker=dict(color=color, line=dict(color="#0d0d0d", width=1.5),
+                        pattern_shape=pattern or ""),
+            text=[f"{v:.1f}" if v > 0 else "—" for v in vals],
+            textposition="outside",
+            textfont=dict(color="#ccc", size=11),
+        )
+
+    fig = go.Figure(data=[
+        bar("Expected (optimal)", exp_v, "#3b82f6"),
+        bar("PPO Baseline",       ppo_v, "#f97316"),
+        bar("Trained (yours)",    trn_v, "#22c55e"),
+    ])
+
+    fig.update_layout(
+        barmode="group",
+        bargap=0.22, bargroupgap=0.06,
+        title=dict(text="Model Comparison — Expected · PPO Baseline · Your Trained Model",
+                   font=dict(color="#e0e0e0", size=14), x=0.01),
+        plot_bgcolor="#111", paper_bgcolor="#0d0d0d",
+        font=dict(color="#888", size=11),
+        xaxis=dict(tickfont=dict(color="#ccc", size=11),
+                   gridcolor="#1e1e1e", zerolinecolor="#222"),
+        yaxis=dict(title="Mean Cumulative Episode Reward",
+                   titlefont=dict(color="#666", size=11),
+                   tickfont=dict(color="#666"),
+                   gridcolor="#1e1e1e", zerolinecolor="#222"),
+        legend=dict(bgcolor="rgba(17,17,17,0.9)", bordercolor="#2a2a2a",
+                    font=dict(color="#ccc"), orientation="h",
+                    yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=60, r=30, t=70, b=50),
+        annotations=[
+            dict(text="🟢 Trained bar fills in after you run PPO — all bars use cumulative episode reward (same scale)",
+                 xref="paper", yref="paper", x=0, y=-0.18, showarrow=False,
+                 font=dict(color="#555", size=10), align="left")
+        ],
+    )
+    return fig
+
+
+def poll_comparison():
+    return _comparison_chart()
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Gradio UI
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -459,10 +528,19 @@ with gr.Blocks(title="Life Support RL Trainer") as demo:
             gr.Timer(value=3).tick(fn=poll_trl,
                                    outputs=[trl_status, trl_logs, trl_chart])
 
+    gr.Markdown("---")
+    gr.Markdown("### 📊 Model Comparison — Expected · PPO Baseline · Your Trained Model")
     gr.Markdown(
-        "**Tip:** Run PPO first (fast), then TRL GRPO. "
-        "TRL training takes ~20–30 min on T4. "
-        "Trained models are saved in the Space files."
+        "All bars show **mean cumulative episode reward** (same scale). "
+        "The 🟢 Trained bar updates automatically after each PPO run completes."
+    )
+    comparison_chart = gr.Plot(label="", show_label=False,
+                               value=_comparison_chart())
+    gr.Timer(value=5).tick(fn=poll_comparison, outputs=[comparison_chart])
+
+    gr.Markdown(
+        "**Tip:** Run PPO first (fast, ~5–10 min on T4), then TRL GRPO (~20–30 min). "
+        "Trained models are saved as `ppo_<task>.zip` in your Space files."
     )
 
 if __name__ == "__main__":
