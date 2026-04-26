@@ -304,20 +304,22 @@ class LifeSupportEnv:
         delta_o2  = self._o2_percent - prev_o2
         delta_co2 = self._co2_ppm    - prev_co2
 
-        reward_obj = self._compute_reward(power_budget, delta_o2, delta_co2, all_green, event_effects)
+        scale = 100.0 / (1.5 * self.config["max_steps"] + 5.0)
+        reward_obj = self._compute_reward(power_budget, delta_o2, delta_co2, all_green, event_effects, scale)
         reward = reward_obj.total
-        self._total_reward += reward
 
         # Terminal conditions
         done = False; failure_reason = None
         if self._crew_health <= 0.0:
-            done = True; failure_reason = "Crew health reached zero"; reward -= 5.0
+            done = True; failure_reason = "Crew health reached zero"; reward -= 5.0 * scale
         elif self._o2_percent < 15.0:
-            done = True; failure_reason = "O2 below survivable threshold"; reward -= 5.0
+            done = True; failure_reason = "O2 below survivable threshold"; reward -= 5.0 * scale
         elif self._co2_ppm > 4500:
-            done = True; failure_reason = "CO2 lethal concentration"; reward -= 5.0
+            done = True; failure_reason = "CO2 lethal concentration"; reward -= 5.0 * scale
         elif self._step_count >= self.config["max_steps"]:
-            done = True; reward += 5.0
+            done = True; reward += 5.0 * scale
+            
+        self._total_reward += reward
 
         self._done = done
         self._failure_reason = failure_reason
@@ -427,7 +429,7 @@ class LifeSupportEnv:
             cumulative_radiation=round(self._cumulative_radiation, 4),
         )
 
-    def _compute_reward(self, power_budget, delta_o2, delta_co2, all_green, event_effects) -> Reward:
+    def _compute_reward(self, power_budget, delta_o2, delta_co2, all_green, event_effects, scale) -> Reward:
         penalty = 0.0
 
         if O2_SAFE_MIN <= self._o2_percent <= O2_SAFE_MAX:
@@ -475,13 +477,13 @@ class LifeSupportEnv:
                0.1 * efficiency_component + survival_reward +
                trend_bonus + streak_bonus + event_bonus - penalty)
 
-        total = max(-2.0, min(2.0, raw))
+        total = max(-2.0, min(2.0, raw)) * scale
         return Reward(
             total=round(total, 4),
-            health_component=round(health_component, 4),
-            resource_component=round(resource_component, 4),
-            efficiency_component=round(efficiency_component, 4),
-            penalty=round(penalty, 4),
+            health_component=round(health_component * scale, 4),
+            resource_component=round(resource_component * scale, 4),
+            efficiency_component=round(efficiency_component * scale, 4),
+            penalty=round(penalty * scale, 4),
         )
 
     def _alarm_tiers(self) -> Dict[str, str]:
