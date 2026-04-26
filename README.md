@@ -1,13 +1,14 @@
 ---
 title: Life Support ENV
-emoji: 🛸
+emoji: 🌙
 colorFrom: blue
 colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
 ---
-
+Youtube Link: https://www.youtube.com/watch?v=P24q8mNnEHE   
+google collab link :- https://colab.research.google.com/drive/1pMganY-Q2VDaznb6s-G6XYIzWkJiBdW8?usp=sharing
 # 🌙 Life Support ENV — OpenEnv Hackathon Round 2
 
 > **Train an RL agent to keep a crew alive in a cascading space habitat.**  
