@@ -109,7 +109,8 @@ CSS = """
 .status-box { background-color: #1a1a1a !important; border: 1px solid #333 !important; }
 """
 
-with gr.Blocks(theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"), css=CSS) as demo:
+theme_val = gr.themes.Base(primary_hue="orange", neutral_hue="slate")
+with gr.Blocks() as demo:
     gr.Markdown("# 🚀 Life Support RL Trainer")
     gr.Markdown("Train a PPO agent to keep your crew alive in a space habitat.")
     
@@ -135,4 +136,4 @@ with gr.Blocks(theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"), 
 
 if __name__ == "__main__":
     demo.queue()
-    demo.launch(server_name="0.0.0.0", server_port=7860)
+    demo.launch(server_name="0.0.0.0", server_port=7860, theme=theme_val, css=CSS)
