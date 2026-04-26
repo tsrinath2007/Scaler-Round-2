@@ -3,7 +3,13 @@ Gradio app — Life Support RL Trainer
 Two training modes:
   1. PPO (Stable-Baselines3) — fast, classical RL
   2. TRL GRPO — LLM fine-tuned with environment reward signal
+
+Heavy ML libs (torch, SB3, TRL) are imported lazily INSIDE the
+training functions so Gradio starts instantly without waiting for them.
 """
+import sys
+sys.path.insert(0, ".")
+
 import threading
 import json
 import re
@@ -12,11 +18,7 @@ import numpy as np
 import gradio as gr
 import plotly.graph_objects as go
 
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import BaseCallback
-
-from gym_wrapper import LifeSupportGymEnv
+# Lightweight env imports only — these start fast
 from env.environment import LifeSupportEnv
 from env.models import Action
 
@@ -125,28 +127,9 @@ _trl_running  = False
 TASK_STEPS = {"task_easy": 100_000, "task_medium": 300_000, "task_hard": 500_000}
 
 
-class PPOCallback(BaseCallback):
-    def __init__(self):
-        super().__init__()
-        self._rollout = 0
-
-    def _on_rollout_end(self):
-        self._rollout += 1
-        steps = self.num_timesteps
-        if len(self.model.ep_info_buffer) > 0:
-            ep_rewards = [ep["r"] for ep in self.model.ep_info_buffer]
-            ep_lengths = [ep["l"] for ep in self.model.ep_info_buffer]
-            mean_r = float(np.mean(ep_rewards))
-            mean_l = float(np.mean(ep_lengths))
-            _ppo_rewards.append((self._rollout, mean_r))
-            _ppo_logs.append(
-                f"[Rollout {self._rollout:>4}]  Steps: {steps:>8,}  |  "
-                f"Mean reward: {mean_r:>8.3f}  |  Mean ep len: {mean_l:>6.1f}"
-            )
-        return True
-
-    def _on_step(self):
-        return True
+class PPOCallback:
+    """Placeholder — real callback defined lazily inside _run_ppo."""
+    pass
 
 
 def _run_ppo(task_id, total_steps, n_envs):
@@ -155,24 +138,54 @@ def _run_ppo(task_id, total_steps, n_envs):
     _ppo_rewards.clear()
     _ppo_logs.clear()
     try:
+        # Lazy imports — keeps app startup fast
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.env_util import make_vec_env
+        from stable_baselines3.common.callbacks import BaseCallback
+        from gym_wrapper import LifeSupportGymEnv
+
+        class _PPOCallback(BaseCallback):
+            def __init__(self):
+                super().__init__()
+                self._rollout = 0
+
+            def _on_rollout_end(self):
+                self._rollout += 1
+                steps = self.num_timesteps
+                if len(self.model.ep_info_buffer) > 0:
+                    ep_rewards = [ep["r"] for ep in self.model.ep_info_buffer]
+                    ep_lengths = [ep["l"] for ep in self.model.ep_info_buffer]
+                    mean_r = float(np.mean(ep_rewards))
+                    mean_l = float(np.mean(ep_lengths))
+                    _ppo_rewards.append((self._rollout, mean_r))
+                    _ppo_logs.append(
+                        f"[Rollout {self._rollout:>4}]  Steps: {steps:>8,}  |  "
+                        f"Mean reward: {mean_r:>8.3f}  |  Mean ep len: {mean_l:>6.1f}"
+                    )
+                return True
+
+            def _on_step(self):
+                return True
+
         _ppo_logs.append(f"Setting up {n_envs} envs for {task_id}...")
         _ppo_status = f"Training PPO on {task_id}..."
         env = make_vec_env(lambda: LifeSupportGymEnv(task_id=task_id), n_envs=n_envs)
         model = PPO("MlpPolicy", env, learning_rate=3e-4, n_steps=2048,
                     batch_size=256, n_epochs=10, gamma=0.99, verbose=0)
-        model.learn(total_timesteps=total_steps, callback=PPOCallback())
+        model.learn(total_timesteps=total_steps, callback=_PPOCallback())
         model.save(f"ppo_{task_id}")
         final_val = _ppo_rewards[-1][1] if _ppo_rewards else 0.0
         final = f"{final_val:.3f}"
-        # Store actual cumulative episode reward so comparison chart is on the right scale
         _ppo_trained_scores[task_id] = final_val
         _ppo_logs.append(f"✅ Done! Saved ppo_{task_id}.zip  |  Final mean reward: {final}")
         _ppo_status = f"Done! Final mean reward: {final}"
     except Exception as e:
-        _ppo_logs.append(f"❌ Error: {e}")
+        import traceback
+        _ppo_logs.append(f"❌ Error: {traceback.format_exc()}")
         _ppo_status = f"Error: {e}"
     finally:
         _ppo_running = False
+
 
 
 def start_ppo(task_id):
