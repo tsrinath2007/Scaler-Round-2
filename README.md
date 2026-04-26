@@ -1,6 +1,6 @@
 ---
 title: Life Support ENV
-emoji: 🛸
+emoji: 🌙
 colorFrom: blue
 colorTo: indigo
 sdk: docker
@@ -15,8 +15,10 @@ pinned: false
 > 🏆 OpenEnv Hackathon Grand Finale — 25–26 April 2026, Bangalore
 
 [![HuggingFace Space](https://img.shields.io/badge/🤗%20Space-Life%20Support%20ENV-blue)](https://huggingface.co/spaces/tsrinath/Scaler-Round-2)
+[![GitHub](https://img.shields.io/badge/GitHub-Scaler--Round--2-black?logo=github)](https://github.com/tsrinath2007/Scaler-Round-2)
 [![OpenEnv](https://img.shields.io/badge/Built%20on-OpenEnv-orange)](https://github.com/meta-pytorch/OpenEnv)
 [![PyTorch](https://img.shields.io/badge/PyTorch-Foundation-red)](https://pytorch.org)
+[![Docker](https://img.shields.io/badge/SDK-Docker-blue)](https://huggingface.co/spaces/tsrinath/Scaler-Round-2)
 
 ---
 
@@ -321,4 +323,10 @@ Training on this environment teaches capabilities that **transfer** to real auto
 Built for the **OpenEnv Hackathon Grand Finale** (25–26 April 2026, Bangalore)  
 Powered by **Scaler School of Technology** · Sponsored by **Meta**, **Hugging Face**, **PyTorch**
 
-*Winners receive interview opportunities at Meta & Hugging Face AI teams.*
+### **Team BigByte**
+- **Koppeti Pushkar** (Team Lead)
+- **Thota Sai Eswar Srinath**
+- **Nikhil sai kadiri**
+
+---
+*Thank you for exploring Among Us - Crisis!*
