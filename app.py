@@ -280,7 +280,8 @@ CSS = """
 .analysis-title { color: #f97316; font-size: 0.85em; font-weight: bold; letter-spacing: 2px; margin: 40px 0 20px; border-bottom: 1px solid #1a1a2a; padding-bottom: 10px; }
 """
 
-with gr.Blocks(theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"), css=CSS) as demo:
+theme_val = gr.themes.Base(primary_hue="orange", neutral_hue="slate")
+with gr.Blocks() as demo:
     gr.Markdown("# 🚀 Among Us - Crisis")
     gr.Markdown("Train a PPO agent to keep your crew alive in a space habitat.")
     
