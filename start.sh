@@ -9,6 +9,6 @@ python train_full_pipeline.py \
     --hub-repo "${HUB_REPO:-}" \
     --skip-push > /app/training.log 2>&1 &
 
-# Start the FastAPI server in the foreground
-echo "Starting FastAPI server..."
-uvicorn server.app:app --host 0.0.0.0 --port 7860
+# Start the Gradio Web UI in the foreground
+echo "Starting Gradio UI..."
+python app.py
