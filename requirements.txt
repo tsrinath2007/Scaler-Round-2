@@ -5,6 +5,8 @@ openai
 requests
 pyyaml
 openenv-core
+plotly
+pandas
 
 # RL training
 gymnasium>=0.29.0
