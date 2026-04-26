@@ -184,6 +184,9 @@ class LifeSupportEnv:
         rf = max(0.0, min(1.0, action.ration_food))
         ca = max(0.0, min(1.0, action.crew_activity))
 
+        # Baseline metabolism: crew consumes resources even at zero activity
+        effective_ca = 0.4 + 0.6 * ca
+
         crew = self._effective_crew()
 
         # Power budget — affected by solar panel health and routing
@@ -227,8 +230,8 @@ class LifeSupportEnv:
         scrubber_eff = self._co2_scrubber_efficiency * co2_scrub_mult * pr.get("life_support", 1.0)
         co2_scrubbed = self._co2_ppm * scrubber_eff * abs(min(0.0, ao)) * 0.3
 
-        self._o2_percent += plant_o2 - crew * O2_PER_CREW_PER_STEP * ca + ao * 0.5
-        self._co2_ppm    += crew * CO2_PER_CREW_PER_STEP * ca * 1000 - plant_co2 - co2_scrubbed
+        self._o2_percent += plant_o2 - crew * O2_PER_CREW_PER_STEP * effective_ca + ao * 0.5
+        self._co2_ppm    += crew * CO2_PER_CREW_PER_STEP * effective_ca * 1000 - plant_co2 - co2_scrubbed
 
         self._o2_percent = max(0.0, min(30.0, self._o2_percent))
         self._co2_ppm    = max(0.0, min(5000.0, self._co2_ppm))
@@ -255,7 +258,7 @@ class LifeSupportEnv:
 
         # Food dynamics
         total_crew_for_food = self.config["crew_size"] + self._crew_added
-        self._food = max(0.0, self._food - total_crew_for_food * (FOOD_PER_CREW_PER_DAY / 24.0) * rf * ca * dehydration_factor)
+        self._food = max(0.0, self._food - total_crew_for_food * (FOOD_PER_CREW_PER_DAY / 24.0) * rf * effective_ca * dehydration_factor)
 
         # Crew health
         h = 0.0
@@ -269,8 +272,12 @@ class LifeSupportEnv:
             h -= 0.1
         if self._water < 10.0:
             h -= 0.04 * (10.0 - self._water) / 10.0
+        
+        # Penalize health for extreme rationing (prevents hoarding food forever)
+        if rf < 0.5:
+            h -= 0.02 * (0.5 - rf)
         if self._food <= 0.0:
-            h -= 0.03
+            h -= 0.05
         if fire_active:
             h -= 0.02 * (self._o2_percent - O2_FIRE_RISK)
 
