@@ -13,7 +13,9 @@ dependencies = [
     "openai",
     "requests",
     "pyyaml",
-    "openenv-core"
+    "openenv-core",
+    "gradio>=4.0",
+    "matplotlib"
 ]
 
 [project.scripts]
