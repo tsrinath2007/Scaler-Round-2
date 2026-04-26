@@ -454,11 +454,8 @@ button.stop-btn { background:#3b82f6 !important; color:#fff !important; font-wei
 """
 
 # ── UI ────────────────────────────────────────────────────────────────────────
-with gr.Blocks(
-    title="Among Us: Crisis — By BigByte",
-    theme=gr.themes.Base(primary_hue="orange", neutral_hue="slate"),
-    css=CSS,
-) as demo:
+theme_val = gr.themes.Base(primary_hue="orange", neutral_hue="slate")
+with gr.Blocks(title="Among Us: Crisis — By BigByte") as demo:
 
     env_state    = gr.State(None)
     history_s    = gr.State([])
@@ -527,4 +524,4 @@ with gr.Blocks(
     demo.load(fn=reset_fn, inputs=[task_sel], outputs=OUTPUTS)
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=7860, theme=theme_val, css=CSS)
