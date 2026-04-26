@@ -7,7 +7,7 @@ sdk: docker
 app_port: 7860
 pinned: false
 ---
-Youtube Link: https://www.youtube.com/watch?v=P24q8mNnEHE   
+Youtube Link: (https://youtu.be/TjJRbDf_y5M?si=KVnK4DNZo30yYgbL)   
 google collab link :- https://colab.research.google.com/drive/1pMganY-Q2VDaznb6s-G6XYIzWkJiBdW8?usp=sharing
 # 🌙 Life Support ENV — OpenEnv Hackathon Round 2
 
