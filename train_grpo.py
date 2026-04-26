@@ -88,8 +88,11 @@ DEFAULT_ACTION = {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def parse_action(text: str) -> Action:
-    """Extract JSON action from model output, with safe fallback."""
+def parse_action(text: str) -> tuple[Action, bool]:
+    """
+    Extract JSON action from model output.
+    Returns (Action, valid) — valid=False means the model produced garbage output.
+    """
     match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
     if match:
         try:
@@ -101,10 +104,10 @@ def parse_action(text: str) -> Action:
                 ration_food=float(d.get("ration_food", 0.9)),
                 crew_activity=float(d.get("crew_activity", 0.7)),
                 route_power=str(d.get("route_power", "balanced")),
-            )
+            ), True
         except (json.JSONDecodeError, ValueError):
             pass
-    return Action(**DEFAULT_ACTION)
+    return Action(**DEFAULT_ACTION), False
 
 
 def format_observation(obs, step: int, max_steps: int) -> str:
@@ -150,6 +153,7 @@ def rollout_once(trainer, env: LifeSupportEnv, tokenizer):
     step_rewards    = []
     health_scores   = []
     safe_steps      = 0
+    valid_actions   = 0   # counts steps with valid JSON output
     total_steps     = 0
     failure_reason  = None
 
@@ -175,7 +179,10 @@ def rollout_once(trainer, env: LifeSupportEnv, tokenizer):
             out["completion_ids"], skip_special_tokens=True
         )
 
-        action = parse_action(completion_text)
+        action, is_valid = parse_action(completion_text)
+        if is_valid:
+            valid_actions += 1
+
         obs, reward, done, info = env.step(action)
         total_steps += 1
 
@@ -199,15 +206,20 @@ def rollout_once(trainer, env: LifeSupportEnv, tokenizer):
     avg_health   = sum(health_scores) / len(health_scores) if health_scores else 0.0
     safe_frac    = safe_steps / total_steps if total_steps > 0 else 0.0
     avg_step_rew = sum(step_rewards) / len(step_rewards) if step_rewards else 0.0
+    format_frac  = valid_actions / total_steps if total_steps > 0 else 0.0
+
+    # Bipolar survival: +1 survived, -1 died — 2× gradient vs 0/1
+    survival_bipolar = 1.0 if survived else -1.0
 
     return {
         "prompt_ids":      prompt_ids,
         "completion_ids":  completion_ids,
         "logprobs":        logprobs,
-        "survival_reward": 1.0 if survived else 0.0,
+        "survival_reward": survival_bipolar,
         "health_reward":   avg_health,
         "safe_reward":     safe_frac,
         "step_reward":     avg_step_rew,
+        "format_reward":   format_frac,   # 1.0 = all JSON valid, 0.0 = all garbage
     }
 
 
@@ -223,6 +235,7 @@ def make_rollout_func(task_id: str, tokenizer):
             "health_reward":   [],
             "safe_reward":     [],
             "step_reward":     [],
+            "format_reward":   [],
         }
         for _ in prompts:
             env = LifeSupportEnv(task_id=task_id)
@@ -259,6 +272,16 @@ def reward_step(completions, **kwargs):
     return [float(x) for x in r] if r is not None else [0.0] * len(completions)
 
 
+def reward_format(completions, **kwargs):
+    """
+    Fraction of steps where the model output valid JSON [0, 1].
+    Penalises garbage output — the most common early mistake.
+    Reaching 1.0 means the model has learned the correct response format.
+    """
+    r = kwargs.get("format_reward")
+    return [float(x) for x in r] if r is not None else [0.0] * len(completions)
+
+
 # ── Training curve callback ───────────────────────────────────────────────────
 
 TRACKED_METRICS = [
@@ -266,6 +289,7 @@ TRACKED_METRICS = [
     "rewards/reward_health",
     "rewards/reward_safe_environment",
     "rewards/reward_step",
+    "rewards/reward_format",
     "loss",
 ]
 
@@ -313,17 +337,18 @@ class RewardLogger(TrainerCallback):
         # Top panel: reward signals
         ax_r = axes[0]
         labels = {
-            "rewards/reward_survival":         "Survival (0/1)",
+            "rewards/reward_survival":         "Survival (+1/-1)",
             "rewards/reward_health":            "Avg crew health",
             "rewards/reward_safe_environment":  "Safe-step fraction",
             "rewards/reward_step":              "Avg env reward",
+            "rewards/reward_format":            "Valid JSON fraction",
         }
         for key in reward_keys:
             vals = self.history[key]
             if any(v == v for v in vals):  # skip if all NaN
                 ax_r.plot(self.steps, vals, label=labels.get(key, key), linewidth=1.5)
         ax_r.set_ylabel("Reward")
-        ax_r.set_ylim(-0.05, 1.15)
+        ax_r.set_ylim(-1.1, 1.15)  # survival is now bipolar -1/+1
         ax_r.legend(fontsize=9, loc="lower right")
         ax_r.grid(True, alpha=0.3)
         ax_r.axhline(0.8, color="green", linestyle="--", linewidth=0.8,
@@ -410,7 +435,7 @@ def main():
         gradient_accumulation_steps=64,
         per_device_train_batch_size=1,
         warmup_steps=20,
-        num_generations=2,
+        num_generations=4,  # compare 4 rollouts per prompt — much stronger GRPO signal
         max_completion_length=96,   # enough for one JSON action line
         max_prompt_length=512,      # compact observation fits easily
         use_vllm=use_vllm,
@@ -433,10 +458,11 @@ def main():
         model=args.model,
         processing_class=tokenizer,
         reward_funcs=[
-            reward_survival,
-            reward_health,
-            reward_safe_environment,
-            reward_step,
+            reward_format,           # learned first: teaches correct JSON format
+            reward_survival,         # bipolar +1/-1: strong gradient for staying alive
+            reward_health,           # dense: avg crew health across episode
+            reward_safe_environment, # dense: fraction of steps all params in safe range
+            reward_step,             # dense: avg per-step env reward
         ],
         train_dataset=dataset,
         args=grpo_config,
