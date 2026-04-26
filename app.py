@@ -10,7 +10,7 @@ import re
 import random
 import numpy as np
 import gradio as gr
-import pandas as pd
+import plotly.graph_objects as go
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
@@ -19,6 +19,89 @@ from stable_baselines3.common.callbacks import BaseCallback
 from gym_wrapper import LifeSupportGymEnv
 from env.environment import LifeSupportEnv
 from env.models import Action
+
+# ── Shared chart builder (Plotly — zoomable, pannable, hoverable) ────────────
+
+def _make_chart(data, x_label, y_label, title):
+    """Return an interactive Plotly figure from a list of (x, y) tuples."""
+    if not data:
+        fig = go.Figure()
+        fig.update_layout(
+            title=dict(text=title, font=dict(color="#e0e0e0", size=14)),
+            plot_bgcolor="#111", paper_bgcolor="#0d0d0d",
+            xaxis=dict(visible=False), yaxis=dict(visible=False),
+            annotations=[dict(text="Waiting for data…", xref="paper", yref="paper",
+                              x=0.5, y=0.5, showarrow=False,
+                              font=dict(color="#444", size=14))],
+        )
+        return fig
+
+    xs = [d[0] for d in data]
+    ys = [d[1] for d in data]
+
+    # Rolling average
+    w  = max(1, len(ys) // 8)
+    ra = np.convolve(ys, np.ones(w) / w, mode="valid").tolist()
+    rx = xs[w - 1:]
+
+    fig = go.Figure()
+
+    # Raw values — thin, semi-transparent
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys, mode="lines", name="Raw",
+        line=dict(color="rgba(249,115,22,0.25)", width=1),
+        hovertemplate=f"{x_label}: %{{x}}<br>Reward: %{{y:.4f}}<extra></extra>",
+    ))
+
+    # Rolling average — thick orange, filled
+    fig.add_trace(go.Scatter(
+        x=rx, y=ra, mode="lines", name=f"Avg (w={w})",
+        line=dict(color="#f97316", width=2.8),
+        fill="tozeroy", fillcolor="rgba(249,115,22,0.09)",
+        hovertemplate=f"{x_label}: %{{x}}<br>Avg reward: %{{y:.4f}}<extra></extra>",
+    ))
+
+    # Current value marker
+    fig.add_trace(go.Scatter(
+        x=[xs[-1]], y=[ys[-1]], mode="markers+text",
+        marker=dict(color="#f97316", size=9, symbol="circle",
+                    line=dict(color="#fff", width=1.5)),
+        text=[f"  {ys[-1]:.3f}"], textposition="middle right",
+        textfont=dict(color="#f97316", size=11),
+        name="Latest", showlegend=False,
+        hovertemplate=f"Latest: %{{y:.4f}}<extra></extra>",
+    ))
+
+    fig.update_layout(
+        title=dict(text=title, font=dict(color="#e0e0e0", size=14), x=0.02),
+        plot_bgcolor="#111",
+        paper_bgcolor="#0d0d0d",
+        font=dict(color="#888", size=11),
+        xaxis=dict(
+            title=x_label, titlefont=dict(color="#666", size=11),
+            gridcolor="#1e1e1e", zerolinecolor="#222",
+            tickfont=dict(color="#666"), showspikes=True,
+            spikecolor="#f97316", spikethickness=1, spikedash="dot",
+        ),
+        yaxis=dict(
+            title=y_label, titlefont=dict(color="#666", size=11),
+            gridcolor="#1e1e1e", zerolinecolor="#222",
+            tickfont=dict(color="#666"), showspikes=True,
+            spikecolor="#f97316", spikethickness=1, spikedash="dot",
+        ),
+        legend=dict(
+            bgcolor="rgba(17,17,17,0.8)", bordercolor="#2a2a2a",
+            font=dict(color="#aaa"), orientation="h",
+            yanchor="bottom", y=1.01, xanchor="right", x=1,
+        ),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#1a1a1a", bordercolor="#f97316",
+                        font=dict(color="#e0e0e0")),
+        margin=dict(l=60, r=30, t=55, b=50),
+        dragmode="zoom",   # default to zoom-box on drag
+    )
+    return fig
+
 
 # ── Shared state — PPO ───────────────────────────────────────────────────────
 _ppo_rewards  = []
@@ -104,10 +187,12 @@ def _ppo_log_text():
 
 
 def _ppo_chart():
-    if not _ppo_rewards:
-        return None
-    df = pd.DataFrame(_ppo_rewards, columns=["Rollout", "Mean Reward"])
-    return df
+    return _make_chart(
+        _ppo_rewards,
+        x_label="Rollout",
+        y_label="Mean Reward",
+        title="PPO — Mean Episode Reward per Rollout",
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -310,10 +395,12 @@ def _trl_log_text():
 
 
 def _trl_chart():
-    if not _trl_rewards:
-        return None
-    df = pd.DataFrame(_trl_rewards, columns=["Step", "Reward"])
-    return df
+    return _make_chart(
+        _trl_rewards,
+        x_label="Step",
+        y_label="Reward",
+        title="TRL GRPO — Mean Reward per Training Step",
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -340,10 +427,7 @@ with gr.Blocks(title="Life Support RL Trainer") as demo:
                                     value=_ppo_status)
             with gr.Tabs():
                 with gr.Tab("📈 Reward Chart"):
-                    ppo_chart = gr.LinePlot(
-                        value=None, x="Rollout", y="Mean Reward",
-                        title="PPO — Mean Episode Reward per Rollout",
-                        x_title="Rollout", y_title="Mean Reward", height=350)
+                    ppo_chart = gr.Plot(label="", show_label=False)
                 with gr.Tab("📋 Logs"):
                     ppo_logs = gr.Textbox(label="Training Logs", interactive=False,
                                           lines=20, max_lines=20)
@@ -365,10 +449,7 @@ with gr.Blocks(title="Life Support RL Trainer") as demo:
                                     value=_trl_status)
             with gr.Tabs():
                 with gr.Tab("📈 Reward Chart"):
-                    trl_chart = gr.LinePlot(
-                        value=None, x="Step", y="Reward",
-                        title="TRL GRPO — Mean Reward per Step",
-                        x_title="Training Step", y_title="Mean Reward", height=350)
+                    trl_chart = gr.Plot(label="", show_label=False)
                 with gr.Tab("📋 Logs"):
                     trl_logs = gr.Textbox(label="Training Logs", interactive=False,
                                           lines=20, max_lines=20)

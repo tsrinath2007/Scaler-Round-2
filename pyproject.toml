@@ -15,7 +15,8 @@ dependencies = [
     "pyyaml",
     "openenv-core",
     "gradio>=4.0",
-    "matplotlib"
+    "matplotlib",
+    "plotly"
 ]
 
 [project.scripts]
