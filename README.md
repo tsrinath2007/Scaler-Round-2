@@ -1,6 +1,6 @@
 ---
 title: Life Support ENV
-emoji: 🌙
+emoji: 🛸
 colorFrom: blue
 colorTo: indigo
 sdk: docker
