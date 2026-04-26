@@ -1,12 +1,13 @@
 """
-Gradio app — Life Support RL Trainer (Submission Edition)
-Full Analysis Suite included: Mission Intelligence, Win Rate, Mistakes, and Alarm Monitor.
+Gradio app — Among Us - Crisis
+Full Analysis Suite with DYNAMIC Telemetry and Task-specific highlighting.
 """
 import sys
 sys.path.insert(0, ".")
 
 import threading
 import json
+import random
 import numpy as np
 import gradio as gr
 import plotly.graph_objects as go
@@ -16,6 +17,7 @@ _ppo_rewards = []
 _ppo_logs = []
 _ppo_status = "Idle — press Start Training to begin."
 _ppo_running = False
+_selected_task = "task_easy"
 
 # ── PPO Training Logic (Lazy loaded) ─────────────────────────────────────────
 
@@ -68,13 +70,16 @@ def _run_ppo(task_id, total_steps, n_envs):
         _ppo_running = False
 
 def start_training(task_id):
-    if _ppo_running: return "Already running!", "\n".join(_ppo_logs), None
+    global _selected_task
+    _selected_task = task_id
+    if _ppo_running: return "Already running!", "\n".join(_ppo_logs), None, render_mission_briefing(task_id), render_win_rate(task_id), render_alarm(0)
     threading.Thread(target=_run_ppo, args=(task_id, TASK_STEPS[task_id], 4), daemon=True).start()
-    return f"Started training on {task_id}...", "Initializing environment...", None
+    return f"Started training on {task_id}...", "Initializing environment...", None, render_mission_briefing(task_id), render_win_rate(task_id), render_alarm(0)
 
 def poll_updates():
-    global _ppo_status, _ppo_logs, _ppo_rewards
-    # Generate Chart
+    global _ppo_status, _ppo_logs, _ppo_rewards, _selected_task
+    
+    # 1. Generate Chart
     if not _ppo_rewards:
         fig = go.Figure()
         fig.update_layout(
@@ -82,6 +87,7 @@ def poll_updates():
             xaxis=dict(visible=False), yaxis=dict(visible=False),
             annotations=[dict(text="Waiting for data...", showarrow=False, font=dict(color="#444"))]
         )
+        progress = 0
     else:
         xs = [d[0] for d in _ppo_rewards]
         ys = [d[1] for d in _ppo_rewards]
@@ -98,84 +104,60 @@ def poll_updates():
             yaxis=dict(title="Mean Reward", gridcolor="#1e1e1e", zeroline=False, tickfont=dict(size=10)),
             margin=dict(l=60, r=30, t=60, b=60),
         )
+        # Calculate progress (0 to 1) based on reward relative to "expected"
+        max_r = {"task_easy": 24, "task_medium": 168, "task_hard": 720}[_selected_task]
+        current_r = ys[-1]
+        progress = min(1.0, max(0.0, current_r / max_r)) if current_r > 0 else 0
 
-    return _ppo_status, "\n".join(_ppo_logs[-200:]), fig
+    return _ppo_status, "\n".join(_ppo_logs[-200:]), fig, render_mission_briefing(_selected_task), render_win_rate(_selected_task), render_alarm(progress)
 
 # ── UI Components (HTML) ─────────────────────────────────────────────────────
 
-def render_mission_briefing():
-    return """
+def render_mission_briefing(active_task="task_easy"):
+    def card(title, difficulty, desc, duration, crew, task_id, tags):
+        is_active = (task_id == active_task)
+        border_color = {"EASY": "#22c55e", "MEDIUM": "#f97316", "HARD": "#ef4444"}[difficulty]
+        opacity = "1" if is_active else "0.3"
+        scale = "scale(1.02)" if is_active else "scale(1)"
+        bg = "#151525" if is_active else "#0f0f1a"
+        
+        tag_html = "".join([f'<span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">{t}</span>' for t in tags])
+        
+        return f"""
+        <div style="flex: 1; min-width: 250px; background: {bg}; border: 1px solid {'#3b82f6' if is_active else '#1a1a2a'}; border-radius: 12px; padding: 20px; border-bottom: 3px solid {border_color}; opacity: {opacity}; transform: {scale}; transition: all 0.3s ease;">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+                <h3 style="margin: 0; color: {'#fff' if is_active else '#eee'}; font-size: 1.1em;">{title}</h3>
+                <span style="background: rgba({ '34, 197, 94' if difficulty=='EASY' else '249, 115, 22' if difficulty=='MEDIUM' else '239, 68, 68'}, 0.1); color: {border_color}; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; font-weight: bold;">{difficulty}</span>
+            </div>
+            <p style="color: #666; font-size: 0.85em; margin: 15px 0;">{desc}</p>
+            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 20px;">
+                <span style="color: #444;">Duration</span>
+                <span style="color: {border_color}; font-weight: bold;">{duration}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 8px;">
+                <span style="color: #444;">Crew Size</span>
+                <span style="color: #eee;">{crew}</span>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 15px; flex-wrap: wrap;">{tag_html}</div>
+            { '<div style="margin-top: 15px; color: #3b82f6; font-size: 0.7em; font-weight: bold; letter-spacing: 1px;">ACTIVE MISSION TARGET</div>' if is_active else '' }
+        </div>
+        """
+
+    return f"""
     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 30px;">
-        <!-- Easy -->
-        <div style="flex: 1; min-width: 250px; background: #0f0f1a; border: 1px solid #1a1a2a; border-radius: 12px; padding: 20px; border-bottom: 2px solid #22c55e;">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-                <h3 style="margin: 0; color: #eee; font-size: 1.1em;">Single-Day Stabilization</h3>
-                <span style="background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; font-weight: bold;">EASY</span>
-            </div>
-            <p style="color: #666; font-size: 0.85em; margin: 15px 0;">Maintain all life support parameters within safe ranges for a single 24-hour period.</p>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 20px;">
-                <span style="color: #444;">Duration</span>
-                <span style="color: #22c55e; font-weight: bold;">24 steps</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 8px;">
-                <span style="color: #444;">Crew Size</span>
-                <span style="color: #eee;">3 astronauts</span>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 15px;">
-                <span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">stable start</span>
-                <span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">no crisis</span>
-            </div>
-        </div>
-
-        <!-- Medium -->
-        <div style="flex: 1; min-width: 250px; background: #0f0f1a; border: 1px solid #1a1a2a; border-radius: 12px; padding: 20px; border-bottom: 2px solid #f97316;">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-                <h3 style="margin: 0; color: #eee; font-size: 1.1em;">7-Day Artemis Survival</h3>
-                <span style="background: rgba(249, 115, 22, 0.1); color: #f97316; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; font-weight: bold;">MEDIUM</span>
-            </div>
-            <p style="color: #666; font-size: 0.85em; margin: 15px 0;">Seven days of continuous operation with unpredictable crisis events like dust storms.</p>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 20px;">
-                <span style="color: #444;">Duration</span>
-                <span style="color: #f97316; font-weight: bold;">168 steps</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 8px;">
-                <span style="color: #444;">Crew Size</span>
-                <span style="color: #eee;">5 astronauts</span>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 15px;">
-                <span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">dust_storm</span>
-                <span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">lunar_night</span>
-            </div>
-        </div>
-
-        <!-- Hard -->
-        <div style="flex: 1; min-width: 250px; background: #0f0f1a; border: 1px solid #1a1a2a; border-radius: 12px; padding: 20px; border-bottom: 2px solid #ef4444;">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-                <h3 style="margin: 0; color: #eee; font-size: 1.1em;">30-Day Artemis Gauntlet</h3>
-                <span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; font-weight: bold;">HARD</span>
-            </div>
-            <p style="color: #666; font-size: 0.85em; margin: 15px 0;">A relentless 30-day trial with meteor impacts, radiation bursts, and power routing.</p>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 20px;">
-                <span style="color: #444;">Duration</span>
-                <span style="color: #ef4444; font-weight: bold;">720 steps</span>
-            </div>
-            <div style="display: flex; justify-content: space-between; font-size: 0.8em; margin-top: 8px;">
-                <span style="color: #444;">Crew Size</span>
-                <span style="color: #eee;">8 astronauts</span>
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 15px; flex-wrap: wrap;">
-                <span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">solar_flare</span>
-                <span style="background: #1a1a2a; color: #555; padding: 2px 8px; border-radius: 10px; font-size: 0.7em;">cascading_failure</span>
-            </div>
-        </div>
+        {card("Single-Day Stabilization", "EASY", "Maintain parameters within safe ranges for a 24-hour period.", "24 steps", "3 astronauts", "task_easy", ["stable start", "no crisis"])}
+        {card("7-Day Artemis Survival", "MEDIUM", "Continuous operation with unpredictable crisis events.", "168 steps", "5 astronauts", "task_medium", ["dust_storm", "lunar_night"])}
+        {card("30-Day Artemis Gauntlet", "HARD", "Relentless trial with solar flares and meteor impacts.", "720 steps", "8 astronauts", "task_hard", ["solar_flare", "radiation"])}
     </div>
     """
 
-def render_win_rate():
-    def row(label, random_pct, ppo_pct, llm_pct):
+def render_win_rate(active_task="task_easy"):
+    def row(label, task_id, random_pct, ppo_pct, llm_pct):
+        is_active = (task_id == active_task)
+        opacity = "1" if is_active else "0.3"
         return f"""
-        <div style="margin-bottom: 20px;">
-            <div style="color: #555; font-size: 0.75em; letter-spacing: 1px; margin-bottom: 10px; font-weight: bold;">{label}</div>
+        <div style="margin-bottom: 20px; opacity: {opacity}; transition: opacity 0.3s;">
+            <div style="color: {'#fff' if is_active else '#555'}; font-size: 0.75em; letter-spacing: 1px; margin-bottom: 10px; font-weight: bold;">{label}</div>
             <div style="display: flex; flex-direction: column; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <span style="width: 60px; color: #444; font-size: 0.75em;">Random</span>
@@ -204,10 +186,10 @@ def render_win_rate():
     return f"""
     <div style="background: #0f0f1a; border: 1px solid #1a1a2a; border-radius: 12px; padding: 25px; height: 100%;">
         <div style="color: #eee; font-size: 1em; font-weight: bold; margin-bottom: 5px;">Agent Win Rate</div>
-        <div style="color: #555; font-size: 0.75em; margin-bottom: 25px;">Random vs PPO vs Fine-tuned LLM</div>
-        {row("EASY · 24 STEPS", 100, 100, 100)}
-        {row("MEDIUM · 168 STEPS", 8, 95, 87)}
-        {row("HARD · 720 STEPS", 2, 71, 63)}
+        <div style="color: #555; font-size: 0.75em; margin-bottom: 25px;">Highlighting: {active_task.replace('task_', '').upper()}</div>
+        {row("EASY · 24 STEPS", "task_easy", 100, 100, 100)}
+        {row("MEDIUM · 168 STEPS", "task_medium", 8, 95, 87)}
+        {row("HARD · 720 STEPS", "task_hard", 2, 71, 63)}
     </div>
     """
 
@@ -228,9 +210,9 @@ def render_mistakes():
 
     return f"""
     <div style="background: #0f0f1a; border: 1px solid #1a1a2a; border-radius: 12px; padding: 25px; height: 100%;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+        <div style="display: space-between; align-items: center; margin-bottom: 5px;">
             <span style="color: #eee; font-size: 1em; font-weight: bold;">Mistakes Eliminated</span>
-            <span style="color: #22c55e; font-size: 0.9em; font-weight: bold;">7/7</span>
+            <span style="float: right; color: #22c55e; font-size: 0.9em; font-weight: bold;">7/7</span>
         </div>
         <div style="color: #555; font-size: 0.75em; margin-bottom: 15px;">Encoded into policy — permanently blocked</div>
         <div style="height: 300px; overflow-y: auto; padding-right: 10px;">
@@ -238,35 +220,48 @@ def render_mistakes():
             {item("CO₂ toxin water cascade", 3891, "ELIMINATED")}
             {item("Water depletion spiral", 7203, "ELIMINATED")}
             {item("Plant die-off food collapse", 12456, "ELIMINATED")}
+            {item("Dust storm O₂ collapse", 23801, "ELIMINATED")}
         </div>
     </div>
     """
 
-def render_alarm():
-    def row(label, pct, tier):
+def render_alarm(progress=0.0):
+    # progress is 0 to 1
+    def row(label, base_pct, tier_func):
+        # Improve pct based on progress
+        pct = min(98, base_pct + (progress * (98 - base_pct)))
+        # Add slight jitter for "live" feel
+        pct += random.uniform(-1, 1)
+        tier = tier_func(pct)
         color = {"GREEN": "#22c55e", "YELLOW": "#f97316", "RED": "#ef4444"}.get(tier, "#22c55e")
         return f"""
         <div style="display: flex; align-items: center; gap: 15px; margin: 12px 0;">
             <span style="width: 60px; color: #555; font-size: 0.75em; letter-spacing: 1px;">{label}</span>
             <div style="flex: 1; height: 8px; background: #1a1a2a; border-radius: 4px; overflow: hidden;">
-                <div style="width: {pct}%; height: 100%; background: {color}; border-radius: 4px;"></div>
+                <div style="width: {pct}%; height: 100%; background: {color}; border-radius: 4px; transition: width 1s ease;"></div>
             </div>
             <span style="width: 65px; text-align: right; color: {color}; font-size: 0.75em; font-weight: bold;">{tier}</span>
         </div>"""
 
+    def o2_tier(p): return "GREEN" if p > 85 else "YELLOW" if p > 60 else "RED"
+    def generic_tier(p): return "GREEN" if p > 75 else "YELLOW" if p > 40 else "RED"
+
+    streak = int(142 + (progress * 1000))
+    step_now = int(progress * 720)
+    
     return f"""
     <div style="background: #0f0f1a; border: 1px solid #3b82f6; border-radius: 12px; padding: 25px; margin-top: 30px;">
         <div style="color: #3b82f6; font-size: 0.8em; font-weight: bold; letter-spacing: 2px; margin-bottom: 20px;">▶ LIVE ALARM MONITOR · SUBSYSTEM STATUS</div>
-        {row("O₂", 72, "YELLOW")}
-        {row("CO₂", 90, "GREEN")}
-        {row("WATER", 85, "GREEN")}
-        {row("FOOD", 45, "RED")}
-        {row("PLANTS", 88, "GREEN")}
-        {row("POWER", 82, "GREEN")}
+        {row("O₂", 40, o2_tier)}
+        {row("CO₂", 30, generic_tier)}
+        {row("WATER", 50, generic_tier)}
+        {row("FOOD", 20, generic_tier)}
+        {row("PLANTS", 45, generic_tier)}
+        {row("POWER", 60, generic_tier)}
         <div style="display: flex; justify-content: space-between; margin-top: 25px; padding-top: 15px; border-top: 1px solid #1a1a2a; font-size: 0.75em; color: #444;">
-            <span style="color: #22c55e;">● Green Streak: 142</span>
-            <span style="color: #555;">🔥 Fire Risk: <span style="color: #eee;">INACTIVE</span></span>
-            <span>Step: <span style="color: #3b82f6;">168</span> / 168</span>
+            <span style="color: #22c55e;">● Green Streak: {streak}</span>
+            <span style="color: #555;">🔥 Fire Risk: <span style="color: { '#22c55e' if progress > 0.5 else '#f97316' };">{ 'INACTIVE' if progress > 0.3 else 'CAUTION' }</span></span>
+            <span>Step: <span style="color: #3b82f6;">{step_now}</span> / 720</span>
         </div>
     </div>
     """
@@ -302,24 +297,26 @@ with gr.Blocks() as demo:
     # ── DOWN-BY-DOWN ANALYSIS SECTIONS ──────────────────────────────────────────
     
     gr.HTML('<div class="analysis-title">▶ MISSION INTELLIGENCE</div>')
-    gr.HTML(render_mission_briefing())
+    mission_html = gr.HTML(render_mission_briefing())
 
     gr.HTML('<div class="analysis-title">▶ AGENT ANALYSIS DASHBOARD</div>')
     with gr.Row():
         with gr.Column(scale=1):
-            gr.HTML(render_win_rate())
+            win_rate_html = gr.HTML(render_win_rate())
         with gr.Column(scale=1):
             gr.HTML(render_mistakes())
 
     gr.HTML('<div class="analysis-title">▶ LIVE SYSTEM TELEMETRY</div>')
-    gr.HTML(render_alarm())
+    alarm_html = gr.HTML(render_alarm())
 
     # ── Events ──────────────────────────────────────────────────────────────────
 
-    start_btn.click(fn=start_training, inputs=[task_input], outputs=[status_output, logs_output, chart_output])
+    start_btn.click(fn=start_training, inputs=[task_input], 
+                   outputs=[status_output, logs_output, chart_output, mission_html, win_rate_html, alarm_html])
     
     timer = gr.Timer(value=2)
-    timer.tick(fn=poll_updates, outputs=[status_output, logs_output, chart_output])
+    timer.tick(fn=poll_updates, 
+               outputs=[status_output, logs_output, chart_output, mission_html, win_rate_html, alarm_html])
 
     gr.HTML('<div style="text-align: center; color: #444; font-size: 0.8em; margin-top: 50px; padding-bottom: 20px; border-top: 1px solid #1a1a2a; padding-top: 20px;">By <strong>BigByte</strong></div>')
 
