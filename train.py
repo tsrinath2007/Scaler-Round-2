@@ -88,9 +88,9 @@ def plot_training_curve(rewards, lengths, save_path: str, task_id: str):
     ax2.legend(); ax2.grid(True, alpha=0.3)
 
     fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Training curve saved → {save_path}")
+    plt.savefig(save_path)
+    plt.close()
+    print(f"  Training curve saved -> {save_path}")
 
 
 def main():
@@ -162,7 +162,7 @@ def main():
     )
 
     model.save(model_path)
-    print(f"\n  Model saved → {model_path}.zip")
+    print(f"\n  Model saved -> {model_path}.zip")
 
     plot_training_curve(callback.episode_rewards, callback.episode_lengths,
                         curve_path, args.task)
