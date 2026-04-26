@@ -23,8 +23,8 @@ google collab link :- https://colab.research.google.com/drive/1pMganY-Q2VDaznb6s
 
 ---
 ## 📊 Training Graphs
-![Reward Curve](image.png)
-![Task Medium Training](training_curve_task_medium.png)
+![Reward Curve](https://huggingface.co/spaces/tsrinath/Scaler-Round-2/resolve/main/image.png)
+![Task Medium Training](https://huggingface.co/spaces/tsrinath/Scaler-Round-2/resolve/main/training_curve_task_medium.png)
 ## 🎯 The Problem
 
 Current LLMs are **terrible at real-time multi-variable system management**. Ask one to manage O₂, CO₂, water, food, and power simultaneously — with cascading failures between subsystems — and it collapses. There is no existing RL environment that teaches this skill to language models.
